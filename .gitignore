@@ -1,0 +1,60 @@
+# ========================================
+# C# / .NET Build Outputs
+# ========================================
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+*.cache
+*.suo
+*.user
+*.vs/
+packages/
+
+# NuGet
+*.nupkg
+nuget.config
+
+# ========================================
+# Python
+# ========================================
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+.venv/
+venv/
+env/
+
+# ========================================
+# IDE / Editor
+# ========================================
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ========================================
+# OS Files
+# ========================================
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ========================================
+# Project-Specific
+# ========================================
+# Recorded game sessions (can be large)
+recordings/
+*.jsonl
+
+# Logs
+logs/
+*.log

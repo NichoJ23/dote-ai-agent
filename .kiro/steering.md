@@ -1,5 +1,10 @@
 # Project Steering & Constraints
 
+## Local Paths
+- **Game install:** `C:\Program Files (x86)\Steam\steamapps\common\Dungeon of the Endless\`
+- **Decompiled source:** `C:\Users\nicho\Documents\Programming\Kiro\Assembly-CSharp\`
+- **Build command:** `& "C:\Program Files\dotnet\dotnet.exe" build` (run from `src/mod/`)
+
 ## Environment & Tech Stack
 - **C# Mod:** .NET Framework 3.5 / Unity 5.0.3 Mono, BepInEx (sc2ad patched build for DotE), raw TCP sockets.
 - **Python Agent:** Python 3.10+, `gymnasium`, `networkx`, `stable-baselines3`.

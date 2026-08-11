@@ -26,6 +26,7 @@ namespace DotEAgent
         private int lastMobCount = 0;
         private int lastSentTurn = -1;
         private string lastSentPhase = "";
+        private bool wasStateConnected = false;
 
         private void Awake()
         {
@@ -43,6 +44,8 @@ namespace DotEAgent
             actionRouter.RegisterHandler(new RepairModuleHandler(stateManager.GetDungeonHook()));
             actionRouter.RegisterHandler(new PowerRoomHandler(stateManager.GetDungeonHook()));
             actionRouter.RegisterHandler(new UnpowerRoomHandler(stateManager.GetDungeonHook()));
+            actionRouter.RegisterHandler(new RecruitHeroHandler(stateManager.GetDungeonHook()));
+            actionRouter.RegisterHandler(new BuyFromMerchantHandler(stateManager.GetDungeonHook()));
         }
 
         private void Update()
@@ -69,17 +72,26 @@ namespace DotEAgent
                 LogFullState(state);
             }
 
-            // Push state to Python agent when turn or phase changes
+            // Push state to Python agent when turn or phase changes, or on new connection
             ipcBridge.AcceptClients();
             if (ipcBridge.IsStateConnected)
             {
-                if (state.Turn != lastSentTurn || state.GamePhase != lastSentPhase)
+                bool newConnection = !wasStateConnected;
+                wasStateConnected = true;
+
+                if (newConnection || state.Turn != lastSentTurn || state.GamePhase != lastSentPhase)
                 {
                     string json = JsonSerializer.Serialize(state);
                     ipcBridge.SendState(json);
                     lastSentTurn = state.Turn;
                     lastSentPhase = state.GamePhase;
+                    if (newConnection)
+                        Log.LogInfo("IPC: Sent initial state to newly connected client");
                 }
+            }
+            else
+            {
+                wasStateConnected = false;
             }
 
             // Poll and process incoming action commands

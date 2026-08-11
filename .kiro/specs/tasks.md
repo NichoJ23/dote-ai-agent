@@ -40,8 +40,8 @@
 | 2.5 | ~~Implement `OpenDoorHandler` that validates hero is in `from_room_id` before triggering door open. Return error if hero not present (REQ-W4).~~ ✅ DONE | 1.2, 1.4, 2.3 | `src/mod/Actions/OpenDoorHandler.cs` | REQ-U7, REQ-W4 |
 | 2.6 | ~~Implement `BuildModuleHandler` and `RepairModuleHandler` for constructing and repairing modules.~~ ✅ DONE | 1.2, 2.3 | `src/mod/Actions/BuildModuleHandler.cs`, `RepairModuleHandler.cs` | REQ-E2 |
 | 2.7 | ~~Implement `PowerRoomHandler` and `UnpowerRoomHandler`; reject unpower attempts on auto-powered rooms.~~ ✅ DONE | 1.2, 2.3 | `src/mod/Actions/PowerRoomHandler.cs` | REQ-E2 |
-| 2.8 | Implement `RecruitHeroHandler` that validates recruiter hero is in the same room as the recruit, deducts food cost. | 1.2, 2.3 | `src/mod/Actions/RecruitHeroHandler.cs` | REQ-E2, US-9 |
-| 2.9 | Implement `BuyFromMerchantHandler` that validates hero is in merchant's room, deducts dust cost. | 1.2, 2.3 | `src/mod/Actions/BuyFromMerchantHandler.cs` | REQ-E2, US-9 |
+| 2.8 | ~~Implement `RecruitHeroHandler` that validates recruiter hero is in the same room as the recruit, deducts food cost.~~ ✅ DONE | 1.2, 2.3 | `src/mod/Actions/RecruitHeroHandler.cs` | REQ-E2, US-9 |
+| 2.9 | ~~Implement `BuyFromMerchantHandler` that validates hero is in merchant's room, deducts dust cost.~~ ✅ DONE | 1.2, 2.3 | `src/mod/Actions/BuyFromMerchantHandler.cs` | REQ-E2, US-9 |
 | 2.10 | Implement `EquipItemHandler` and `UnequipItemHandler` for managing hero equipment slots. | 1.2, 2.3 | `src/mod/Actions/EquipItemHandler.cs` | REQ-E2, US-9 |
 | 2.11 | Implement `CollectItemHandler` that validates hero is in the item's room before collecting. | 1.2, 2.3 | `src/mod/Actions/CollectItemHandler.cs` | REQ-E7, US-9 |
 | 2.12 | Implement `PickUpCrystalHandler` that validates hero is in crystal room; sets `is_carrying_crystal`. | 1.2, 2.3 | `src/mod/Actions/PickUpCrystalHandler.cs` | REQ-E2, US-10 |

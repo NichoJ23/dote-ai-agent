@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using BepInEx;
 using BepInEx.Logging;
+using DotEAgent.Actions;
+using DotEAgent.Ipc;
 using DotEAgent.Models;
 using UnityEngine;
 
@@ -11,19 +13,29 @@ namespace DotEAgent
     {
         public const string PluginGUID = "com.doteagent.mod";
         public const string PluginName = "DotE Agent Mod";
-        public const string PluginVersion = "0.2.0";
+        public const string PluginVersion = "0.3.0";
 
         internal static ManualLogSource Log;
 
         private StateManager stateManager;
+        private IpcBridge ipcBridge;
+        private ActionRouter actionRouter;
         private int lastLoggedTurn = -1;
         private int lastMobCount = 0;
+        private int lastSentTurn = -1;
+        private string lastSentPhase = "";
 
         private void Awake()
         {
             Log = Logger;
             Log.LogInfo(PluginName + " v" + PluginVersion + " loaded!");
             stateManager = new StateManager();
+
+            ipcBridge = new IpcBridge();
+            ipcBridge.Start();
+
+            actionRouter = new ActionRouter(ipcBridge);
+            actionRouter.RegisterHandler(new MoveHeroHandler(stateManager.GetDungeonHook()));
         }
 
         private void Update()
@@ -50,8 +62,33 @@ namespace DotEAgent
                 LogFullState(state);
             }
 
+            // Push state to Python agent when turn or phase changes
+            ipcBridge.AcceptClients();
+            if (ipcBridge.IsStateConnected)
+            {
+                if (state.Turn != lastSentTurn || state.GamePhase != lastSentPhase)
+                {
+                    string json = JsonSerializer.Serialize(state);
+                    ipcBridge.SendState(json);
+                    lastSentTurn = state.Turn;
+                    lastSentPhase = state.GamePhase;
+                }
+            }
+
+            // Poll and process incoming action commands
+            actionRouter.ProcessActions();
+
             // Track mob changes mid-turn (they spawn after turn increments)
             lastMobCount = state.Mobs.Count;
+        }
+
+        private void OnDestroy()
+        {
+            if (ipcBridge != null)
+            {
+                ipcBridge.Dispose();
+                ipcBridge = null;
+            }
         }
 
         private void LogFullState(GameStatePayload state)

@@ -20,3 +20,9 @@
 - C# code must be organized into decoupled manager hooks (`DungeonHook`, `HeroHook`).
 - Python code must adhere to standard Gymnasium `Env` API conventions (`reset()`, `step()`).
 - C# serialization must use a .NET 3.5-compatible JSON library (e.g., MiniJSON, SimpleJSON, or manual serialization).
+
+## Testing Practice
+- Write a test script after every task is completed, before moving to the next task.
+- Test scripts go in `scripts/` (for in-game smoke tests) or `tests/` (for unit/integration tests).
+- Name tests clearly to indicate which task they validate (e.g., `test_ipc_receive.py` for 2.1+2.2).
+- This enables per-task debugging: if a test fails, we know exactly which code introduced the issue.

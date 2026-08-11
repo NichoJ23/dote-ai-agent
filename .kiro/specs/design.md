@@ -919,3 +919,5 @@ class HeuristicAgent(BaseAgent):
 | Operating a module is cancelled by moving | Operator heroes should not be moved unless necessary |
 | Crystal carrier cannot fight | Escape route must be pre-cleared or guarded |
 | Factions affect passive synergies | Equipment/placement decisions factor faction alignment |
+| Items are auto-collected | Heroes don't interact with items; standing in room auto-picks up after short delay. COLLECT_ITEM action = MOVE_HERO to item's room |
+| Repair requires passive skill | Only heroes with "Repair" passive (or item granting it) can repair. Hero must be in the room with damaged modules — repairs happen automatically. Creates operate-vs-repair tradeoff when only operator heroes have Repair |

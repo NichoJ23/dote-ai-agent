@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using Amplitude;
+using Amplitude.Unity.Framework;
 using BepInEx;
 using BepInEx.Logging;
 using DotEAgent.Actions;
@@ -36,6 +38,11 @@ namespace DotEAgent
 
             actionRouter = new ActionRouter(ipcBridge);
             actionRouter.RegisterHandler(new MoveHeroHandler(stateManager.GetDungeonHook()));
+            actionRouter.RegisterHandler(new OpenDoorHandler(stateManager.GetDungeonHook()));
+            actionRouter.RegisterHandler(new BuildModuleHandler(stateManager.GetDungeonHook()));
+            actionRouter.RegisterHandler(new RepairModuleHandler(stateManager.GetDungeonHook()));
+            actionRouter.RegisterHandler(new PowerRoomHandler(stateManager.GetDungeonHook()));
+            actionRouter.RegisterHandler(new UnpowerRoomHandler(stateManager.GetDungeonHook()));
         }
 
         private void Update()
@@ -181,5 +188,6 @@ namespace DotEAgent
                     state.BackpackItems.Count, state.SharedInventoryItems.Count));
             }
         }
+
     }
 }

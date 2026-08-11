@@ -37,9 +37,9 @@
 | 2.2 | ~~Implement a .NET 3.5-compatible JSON serializer (embed SimpleJSON or MiniJSON) for `GameStatePayload` serialization. Implement state sending: serialize and push to connected client on port 5555 each phase transition.~~ ✅ DONE | 1.11, 2.1 | `src/mod/Ipc/JsonSerializer.cs`, state flow on port 5555 | REQ-E1, REQ-O1 |
 | 2.3 | ~~Implement the action polling logic: non-blocking read on port 5556 TCP stream, deserialize `ActionCommand` from length-prefixed JSON, route to appropriate `IActionHandler` via `ActionRouter`. Add `ValidatePreconditions()` check before execution.~~ ✅ DONE | 2.1 | `src/mod/Ipc/ActionRouter.cs` | REQ-E2 |
 | 2.4 | ~~Implement `MoveHeroHandler` that calls the game's internal hero move method.~~ ✅ DONE | 1.2, 1.6, 2.3 | `src/mod/Actions/MoveHeroHandler.cs` | REQ-E2 |
-| 2.5 | Implement `OpenDoorHandler` that validates hero is in `from_room_id` before triggering door open. Return error if hero not present (REQ-W4). | 1.2, 1.4, 2.3 | `src/mod/Actions/OpenDoorHandler.cs` | REQ-U7, REQ-W4 |
-| 2.6 | Implement `BuildModuleHandler` and `RepairModuleHandler` for constructing and repairing modules. | 1.2, 2.3 | `src/mod/Actions/BuildModuleHandler.cs`, `RepairModuleHandler.cs` | REQ-E2 |
-| 2.7 | Implement `PowerRoomHandler` and `UnpowerRoomHandler`; reject unpower attempts on auto-powered rooms. | 1.2, 2.3 | `src/mod/Actions/PowerRoomHandler.cs` | REQ-E2 |
+| 2.5 | ~~Implement `OpenDoorHandler` that validates hero is in `from_room_id` before triggering door open. Return error if hero not present (REQ-W4).~~ ✅ DONE | 1.2, 1.4, 2.3 | `src/mod/Actions/OpenDoorHandler.cs` | REQ-U7, REQ-W4 |
+| 2.6 | ~~Implement `BuildModuleHandler` and `RepairModuleHandler` for constructing and repairing modules.~~ ✅ DONE | 1.2, 2.3 | `src/mod/Actions/BuildModuleHandler.cs`, `RepairModuleHandler.cs` | REQ-E2 |
+| 2.7 | ~~Implement `PowerRoomHandler` and `UnpowerRoomHandler`; reject unpower attempts on auto-powered rooms.~~ ✅ DONE | 1.2, 2.3 | `src/mod/Actions/PowerRoomHandler.cs` | REQ-E2 |
 | 2.8 | Implement `RecruitHeroHandler` that validates recruiter hero is in the same room as the recruit, deducts food cost. | 1.2, 2.3 | `src/mod/Actions/RecruitHeroHandler.cs` | REQ-E2, US-9 |
 | 2.9 | Implement `BuyFromMerchantHandler` that validates hero is in merchant's room, deducts dust cost. | 1.2, 2.3 | `src/mod/Actions/BuyFromMerchantHandler.cs` | REQ-E2, US-9 |
 | 2.10 | Implement `EquipItemHandler` and `UnequipItemHandler` for managing hero equipment slots. | 1.2, 2.3 | `src/mod/Actions/EquipItemHandler.cs` | REQ-E2, US-9 |

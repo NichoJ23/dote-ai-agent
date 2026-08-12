@@ -1,6 +1,7 @@
 # manual_test_phase3.py — run with game + mod active
 import sys
-sys.path.insert(0, "src/agent")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "agent"))
 
 from ipc_client import IpcClient
 from state_parser import StateParser

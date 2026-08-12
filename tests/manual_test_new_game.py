@@ -3,7 +3,8 @@
 # WARNING: This will overwrite any existing save!
 
 import sys
-sys.path.insert(0, "src/agent")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "agent"))
 
 from game_launcher import GameLauncher
 from state_parser import StateParser

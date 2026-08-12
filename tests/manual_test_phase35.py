@@ -7,7 +7,8 @@
 #   python manual_test_phase35.py --new-game   # Start a new game after querying menu
 
 import sys
-sys.path.insert(0, "src/agent")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "agent"))
 
 from game_launcher import GameLauncher
 

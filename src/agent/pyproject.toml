@@ -1,0 +1,28 @@
+[project]
+name = "dote-ai-agent"
+version = "0.1.0"
+description = "Autonomous AI agent for Dungeon of the ENDLESS"
+requires-python = ">=3.10"
+dependencies = [
+    "gymnasium>=0.29.0,<1.0",
+    "networkx>=3.1,<4.0",
+    "numpy>=1.24,<2.0",
+    "pydantic>=2.0,<3.0",
+    "pyyaml>=6.0,<7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0,<9.0",
+    "pytest-cov>=4.0,<6.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.pytest.ini_options]
+testpaths = ["../../tests"]

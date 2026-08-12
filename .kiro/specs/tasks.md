@@ -78,6 +78,23 @@
 | 3.14 | Write unit tests for `GraphBuilder` and `graph_utils` with mock room data including loops (all rooms explored, some doors still closed). | 3.3, 3.4 | `tests/test_graph.py` | US-5 |
 | 3.15 | Write unit tests for `StateParser` covering merchants, recruits, dropped items, passives, and faction fields. | 3.2 | `tests/test_state_parser.py` | REQ-U3 |
 
+✅ **Phase 3 COMPLETE** — All 15 tasks done. 112 automated tests passing. Verified against live game.
+
+---
+
+## Phase 3.5: Game Launch & Run Management ✅ DONE
+
+> **Goal:** Enable the Python agent to programmatically launch the game, start new runs, and continue saved games without manual menu interaction.
+
+| # | Task | Dependencies | Deliverable | Reqs Covered |
+|---|------|--------------|-------------|--------------|
+| 3.5.1 | ~~Add `QUERY_MENU_STATE` action handler: returns in_dungeon, has_save, available_heroes (config names), selectable_heroes (unlocked), available_ships.~~ ✅ | 2.3 | `src/mod/Actions/MenuActionHandler.cs` | — |
+| 3.5.2 | ~~Add `START_NEW_GAME` action handler: sets ship, heroes, difficulty, calls `StartNewSinglePlayerGame()`. Includes `SetInputMode(MouseKeyboard)`.~~ ✅ | 3.5.1 | `src/mod/Actions/MenuActionHandler.cs` | GL-2 |
+| 3.5.3 | ~~Add `CONTINUE_GAME` action handler: loads best SP save via `StartSavedSinglePlayerGame()`.~~ ✅ | 3.5.1 | `src/mod/Actions/MenuActionHandler.cs` | — |
+| 3.5.4 | ~~Modify Plugin.Update() to process IPC actions before dungeon binding (allows menu commands on main menu).~~ ✅ | 2.1 | `src/mod/Plugin.cs` | — |
+| 3.5.5 | ~~Create Python `GameLauncher` class: launch game (Steam/exe), connect IPC with retry, query menu, start/continue, wait for dungeon.~~ ✅ | 2.17, 3.5.1-3 | `src/agent/game_launcher.py` | — |
+| 3.5.6 | ~~Manual verification: start new game via script with Pod/Easy/Max+Gork, verify dungeon loads with correct heroes and keyboard works.~~ ✅ | 3.5.5 | Tested successfully | — |
+
 ---
 
 ## Phase 4: Heuristic Baseline Agent
@@ -116,6 +133,14 @@
 | 4.28 | Implement room item interaction logic: dispatch heroes to trigger free interactables (Chests, Banquets, Science/Industry machines); evaluate cost/benefit for risky interactables (Dust Factory, Cryo Capsule). | 4.3, 4.2 | Item interaction in `heuristic_agent.py` | REQ-E10, REQ-E11 |
 | 4.29 | Implement toxic cloud avoidance: micro-controller avoids positioning heroes in rooms with active toxic clouds; macro-controller avoids assigning operators there. | 4.13 | Toxic avoidance in `heuristic_agent.py` | REQ-S7 |
 | 4.30 | Implement EMP awareness: don't build modules in rooms currently under EMP; factor EMP history into module distribution decisions. | 4.4 | EMP awareness in `heuristic_agent.py` | REQ-S6 |
+
+---
+
+## Future Improvements (Revisit During Phase 4 Tuning)
+
+| # | Item | Context | Trigger |
+|---|------|---------|---------|
+| F-1 | Add explicit room size/dimensions to state extraction | Room size (half/normal/double) affects mob transit time, turret effectiveness, and escape risk. Currently using `minor_slot_count` as a proxy. Would need to find the size property in the `Room` class in Assembly-CSharp and add it to `RoomStateData`. | If heuristic agent makes poor turret placement or power decisions due to not knowing room size |
 
 ---
 

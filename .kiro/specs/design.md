@@ -921,3 +921,190 @@ class HeuristicAgent(BaseAgent):
 | Factions affect passive synergies | Equipment/placement decisions factor faction alignment |
 | Items are auto-collected | Heroes don't interact with items; standing in room auto-picks up after short delay. COLLECT_ITEM action = MOVE_HERO to item's room |
 | Repair requires passive skill | Only heroes with "Repair" passive (or item granting it) can repair. Hero must be in the room with damaged modules — repairs happen automatically. Creates operate-vs-repair tradeoff when only operator heroes have Repair |
+
+
+---
+
+## 8. Implementation Deviations & Discoveries (Phases 2–3.5)
+
+This section documents deviations from the original design discovered during implementation.
+
+### 8.1 Actual Wire Format (differs from Section 3 schemas)
+
+The C# `JsonSerializer` produces snake_case JSON with these key differences from the original design:
+
+**Top-level payload:**
+| Original Design | Actual Wire Format | Notes |
+|---|---|---|
+| `game_phase`: "tactical_pause" / "wave_active" | `game_phase`: "Strategy" / "Action" | Game's internal names |
+| `exit_room_id` | `exit_room_index` | |
+| `meta` object | Not present | No metadata envelope |
+| — | `floor` (int) | Floor number added |
+| — | `crystal_state` ("Plugged"/"Unplugged"/"PluggedOnExitSlot") | Crystal status |
+| — | `start_room_index` | Crystal room |
+| — | `closed_doors` (separate list) | Not embedded per-room |
+| — | `backpack_items` / `shared_inventory_items` | Inventory tracking |
+| — | `researchable_blueprints` | Available research options |
+| `resources` always present | `resources` can be `null` | Null during startup |
+
+**Rooms:**
+| Original | Actual | Notes |
+|---|---|---|
+| `id` | `index` | |
+| `powered` | `is_powered` | |
+| `auto_powered` | `is_auto_powered` | |
+| `has_crystal` | — (use `start_room_index`) | Crystal tracked at top level |
+| `is_explored` | — (room exists in list = explored) | Only opened rooms are sent |
+| `doors` (per-room list) | `adjacent_room_indices` + top-level `closed_doors` | Door state is separate |
+| `installed_modules` / `damaged_modules` | `major_module_name` + `minor_module_names` | 1 major slot, N minor slots |
+| `major_slots` / `minor_slots` | `minor_slot_count` (major is always 0 or 1) | |
+| — | `depth`, `suffers_emp`, `emp_turns_remaining` | Added for strategy |
+| — | `has_artifact`, `has_stele` | Added for defense decisions |
+| — | `hero_count`, `mob_count`, `npc_count` | Embedded counts |
+| — | `dust_loot_amount` | Uncollected dust in room |
+| — | `is_fully_opened` | All doors from this room opened |
+
+**Heroes:**
+| Original | Actual | Notes |
+|---|---|---|
+| `id` (unique string) | — (use `name` as identifier) | Heroes identified by name |
+| `room_id` | `room_index` | |
+| `hp`, `max_hp`, `attack`, `defense`, `speed` | `hp`, `max_hp` only (+ `level`) | No attack/defense/speed stats exposed |
+| `abilities` (with cooldown/unlock) | `active_skills` [{name, cooldown_turns, remaining_cooldown, is_activated}] | Different structure |
+| `passives` (with unlock status) | `passive_skills` [{name}] | No unlock tracking — all listed = unlocked |
+| `equipment` [{slot_type, item_id, item_name}] | `equipment` [{slot_category, item_name}] | No item_id, slot uses game categories |
+| `is_carrying_crystal` | `has_crystal` | |
+| — | `operating_module_name` | Which module being operated |
+| — | `is_recruitable`, `is_recruited` | Recruitment state |
+
+**Mobs:**
+| Original | Actual | Notes |
+|---|---|---|
+| `id` | — (no unique ID) | |
+| `room_id` | `room_index` | |
+| `attack_cooldown` | — | Not exposed |
+| — | `target_type` | "AntiHeroMob", "AntiModuleMob", "Crystal", "Artifact" |
+
+**Merchants:**
+| Original | Actual | Notes |
+|---|---|---|
+| `id` | — | |
+| `room_id` | `room_index` | |
+| `inventory` [{item_id, item_name, slot_type, cost_dust, stats}] | `items` [{name, rarity, cost}] + `currency_type` | Simpler structure |
+
+**Recruitable Heroes:**
+| Original | Actual | Notes |
+|---|---|---|
+| Full hero stats + passives objects | `name`, `faction`, `room_index`, `hp`, `max_hp`, `passive_skill_names` (string list) | Minimal data |
+
+**Dropped Items:**
+| Original | Actual | Notes |
+|---|---|---|
+| `id`, `type`, `room_id`, etc. | `type` ("Dust"/"Equipment"/"Chest"), `name`, `room_index`, `dust_amount` | Simpler |
+
+### 8.2 IPC Protocol
+
+- **No ZeroMQ** — uses raw TCP sockets with 4-byte big-endian length-prefixed JSON framing (ZeroMQ requires .NET 4.x+)
+- **Port 5555**: State push (mod → Python), sent on turn/phase change
+- **Port 5556**: Action request/response (Python → mod → Python)
+- **IPC works before dungeon loads** — menu commands (QUERY_MENU_STATE, START_NEW_GAME, CONTINUE_GAME) are processed from the main menu
+
+### 8.3 Game Difficulty
+
+The game only has two difficulties:
+- `Easy` — this is the "normal" difficulty (game's joke naming: displayed as "Too Easy")
+- `Normal` — this is actually hard (displayed as "Easy" in-game)
+
+The agent defaults to `Easy` (the actual normal difficulty).
+
+### 8.4 Game Phases
+
+| Wire Value | Meaning |
+|---|---|
+| `"Strategy"` | Planning phase — no enemies, build/move/explore |
+| `"Action"` | Wave active — enemies spawning and fighting |
+
+Crystal state is tracked separately via `crystal_state`:
+- `"Plugged"` — normal play
+- `"Unplugged"` — crystal destroyed (game over)
+- `"PluggedOnExitSlot"` — floor escape in progress
+
+### 8.5 Hero & Ship Config Names
+
+Heroes use config names like `Hero_H0001`, `Hero_H0003`, etc. Key mappings:
+- `Hero_H0001` = Max O'Kane (Prisoner faction)
+- `Hero_H0003` = Gork (Native faction)
+
+Ships use simple names: `Pod`, `Infirmary`, `Drill`, `Organic`, etc.
+Default: `Pod` (always unlocked).
+
+### 8.6 ResourceHook Player Reference
+
+`Player.LocalPlayer` can be null during early initialization. The ResourceHook uses a fallback:
+1. Try `Player.LocalPlayer`
+2. Fallback to `Player.GetPlayerByID(Player.GetPlayerIDs()[0])`
+3. If both fail, return partial data (Dust and production rates from Dungeon singleton, zero for Food/Industry/Science)
+
+---
+
+## 9. Phase 3.5: Game Launch & Run Management
+
+### 9.1 New Action Commands (Pre-Dungeon)
+
+These work from the main menu before any dungeon is loaded:
+
+**QUERY_MENU_STATE** → Response metadata:
+```json
+{
+  "in_dungeon": false,
+  "has_save": true,
+  "available_heroes": ["Hero_H0001", "Hero_H0003", ...],
+  "selectable_heroes": ["Hero_H0001", "Hero_H0003", ...],
+  "available_ships": ["Pod", "Infirmary", "Drill", ...]
+}
+```
+
+**START_NEW_GAME** → Parameters:
+```json
+{
+  "hero_names": ["Hero_H0001", "Hero_H0003"],
+  "ship_name": "Pod",
+  "difficulty": "easy"
+}
+```
+Internally calls: `SetInputMode(MouseKeyboard)`, `Dungeon.SetShip()`, `Dungeon.SetSelectedHeroes()`, `Dungeon.SetGameDifficulty()`, `IGameControlService.StartNewSinglePlayerGame()`.
+
+**CONTINUE_GAME** → No parameters.
+Internally calls: `SetInputMode(MouseKeyboard)`, `GameSave.GetBestSPSaveData()`, `IGameControlService.StartSavedSinglePlayerGame(saveKey)`.
+
+### 9.2 Python GameLauncher Class
+
+```python
+launcher = GameLauncher(use_steam=True)
+launcher.launch_and_connect()       # Launch game + connect IPC
+menu = launcher.query_menu_state()  # Get available heroes/ships (retries if game still loading)
+launcher.start_new_game(heroes=["Hero_H0001", "Hero_H0003"], ship="Pod", difficulty="easy")
+state = launcher.wait_for_dungeon() # Block until dungeon state arrives
+
+# Or high-level convenience:
+state = launcher.start_or_continue()  # Defaults: Pod, Easy, Max + Gork
+```
+
+### 9.3 Architecture Change
+
+The `Plugin.Update()` loop now runs `AcceptClients()` and `actionRouter.ProcessActions()` **before** the state binding check. This allows menu commands to be processed while on the main menu (before `StateManager.IsBound` is true).
+
+---
+
+## 10. Python-Side File Map (Phase 3)
+
+| File | Purpose |
+|------|---------|
+| `src/agent/pyproject.toml` | Project metadata + dependencies |
+| `src/agent/ipc_client.py` | TCP IPC client (Phase 2) |
+| `src/agent/state_parser.py` | Pydantic models matching actual wire format |
+| `src/agent/graph_builder.py` | GameStatePayload → NetworkX graph |
+| `src/agent/graph_utils.py` | Pathfinding, centrality, reachability utilities |
+| `src/agent/dote_env.py` | Gymnasium environment wrapper (DotEEnv) |
+| `src/agent/guidelines_config.py` | Configurable heuristic guidelines (YAML/JSON) |
+| `src/agent/game_launcher.py` | Game lifecycle management (launch, start, continue) |

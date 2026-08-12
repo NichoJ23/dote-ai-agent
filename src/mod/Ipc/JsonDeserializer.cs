@@ -378,6 +378,33 @@ namespace DotEAgent.Ipc
                 AppendEscaped(sb, (string)value);
                 sb.Append("\"");
             }
+            else if (value is System.Collections.IList)
+            {
+                sb.Append("[");
+                System.Collections.IList list = (System.Collections.IList)value;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (i > 0) sb.Append(",");
+                    AppendValue(sb, list[i]);
+                }
+                sb.Append("]");
+            }
+            else if (value is System.Collections.IDictionary)
+            {
+                sb.Append("{");
+                System.Collections.IDictionary dict = (System.Collections.IDictionary)value;
+                bool first = true;
+                foreach (System.Collections.DictionaryEntry entry in dict)
+                {
+                    if (!first) sb.Append(",");
+                    first = false;
+                    sb.Append("\"");
+                    AppendEscaped(sb, entry.Key.ToString());
+                    sb.Append("\":");
+                    AppendValue(sb, entry.Value);
+                }
+                sb.Append("}");
+            }
             else
             {
                 sb.Append("\"");

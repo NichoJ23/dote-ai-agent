@@ -9,16 +9,14 @@ namespace DotEAgent.Hooks
     public class ResourceHook : IStateHook
     {
         private Dungeon dungeon;
-        private Player player;
 
         public string HookId { get { return "resources"; } }
-        public bool IsBound { get { return dungeon != null && player != null; } }
+        public bool IsBound { get { return dungeon != null; } }
 
         public bool TryBind()
         {
             dungeon = SingletonManager.Get<Dungeon>(false);
-            player = Player.LocalPlayer;
-            return dungeon != null && player != null;
+            return dungeon != null;
         }
 
         public object ExtractState()
@@ -26,15 +24,32 @@ namespace DotEAgent.Hooks
             if (!IsBound)
                 return null;
 
-            // Re-check Player.LocalPlayer in case it changed (e.g., between floors)
-            player = Player.LocalPlayer;
-            if (player == null)
+            // Re-acquire dungeon in case it changed between floors
+            dungeon = SingletonManager.Get<Dungeon>(false);
+            if (dungeon == null)
                 return null;
 
+            // Get player via multiple fallback paths
+            Player player = Player.LocalPlayer;
+            if (player == null)
+            {
+                // Fallback: try to get player from the player ID list
+                ulong[] ids = Player.GetPlayerIDs();
+                if (ids != null && ids.Length > 0)
+                    player = Player.GetPlayerByID(ids[0], false);
+            }
+
             var state = new ResourceStateData();
-            state.Industry = player.IndustryStock;
-            state.Food = player.FoodStock;
-            state.Science = player.ScienceStock;
+
+            // Player resources (Food, Industry, Science) - requires Player reference
+            if (player != null)
+            {
+                state.Industry = player.IndustryStock;
+                state.Food = player.FoodStock;
+                state.Science = player.ScienceStock;
+            }
+
+            // Dungeon resources (Dust and production rates) - always available
             state.Dust = dungeon.DustStock;
             state.DustMax = dungeon.GetMaxDustStock();
             state.IndustryPerTurn = dungeon.GetIndustryProd();

@@ -56,10 +56,20 @@ namespace DotEAgent
             actionRouter.RegisterHandler(new LevelUpHeroHandler(stateManager.GetDungeonHook()));
             actionRouter.RegisterHandler(new HealHeroHandler(stateManager.GetDungeonHook()));
             actionRouter.RegisterHandler(new ResearchHandler(stateManager.GetDungeonHook()));
+
+            // Menu/lifecycle handlers (work before dungeon loads)
+            actionRouter.RegisterHandler(new MenuActionHandler("QUERY_MENU_STATE"));
+            actionRouter.RegisterHandler(new MenuActionHandler("START_NEW_GAME"));
+            actionRouter.RegisterHandler(new MenuActionHandler("CONTINUE_GAME"));
         }
 
         private void Update()
         {
+            // Always accept IPC clients and process actions (even before dungeon loads)
+            // This allows menu commands like QUERY_MENU_STATE and START_NEW_GAME
+            ipcBridge.AcceptClients();
+            actionRouter.ProcessActions();
+
             // Try to bind if not yet bound
             if (!stateManager.IsBound)
             {
@@ -83,7 +93,6 @@ namespace DotEAgent
             }
 
             // Push state to Python agent when turn or phase changes, or on new connection
-            ipcBridge.AcceptClients();
             if (ipcBridge.IsStateConnected)
             {
                 bool newConnection = !wasStateConnected;
@@ -104,9 +113,6 @@ namespace DotEAgent
             {
                 wasStateConnected = false;
             }
-
-            // Poll and process incoming action commands
-            actionRouter.ProcessActions();
 
             // If we received an action while paused, unpause immediately
             if (pausedForTimeout && actionRouter.LastActionReceivedThisFrame)

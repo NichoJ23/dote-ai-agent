@@ -49,10 +49,10 @@
 | 2.14 | ~~Implement `ResearchHandler` for queueing research.~~ ✅ DONE | 1.2, 2.3 | `src/mod/Actions/ResearchHandler.cs` | REQ-E2, US-8 |
 | 2.15 | ~~Implement error handling: malformed JSON returns `ActionResult{success=false}`; Python timeout triggers game pause.~~ ✅ DONE | 2.3 | Error paths in `ActionRouter.cs` | REQ-W1, REQ-W2 |
 | 2.16 | ~~Implement retry/reconnection logic in `IpcBridge`: if Python TCP client disconnects, accept new connections with BepInEx log warnings.~~ ✅ DONE | 2.1 | Reconnection loop in `IpcBridge.cs` | REQ-S3 |
-| 2.17 | Create Python IPC client (`ipc_client.py`) using standard `socket` library with length-prefixed JSON framing matching the C# side. | 2.1 | `src/agent/ipc_client.py` | REQ-U3 |
-| 2.18 | Write a Python integration test script that: connects, receives one state message (verifying door/passive/faction fields), sends a `MOVE_HERO` command, sends an `OPEN_DOOR` command (with hero in correct room), and asserts success responses. | 2.2, 2.4, 2.5, 2.17 | `tests/test_ipc_integration.py` | REQ-E2, REQ-U7 |
-| 2.19 | Write a negative test: send `OPEN_DOOR` with hero NOT in source room; assert error response. | 2.5, 2.17 | Test case in `tests/test_ipc_integration.py` | REQ-W4 |
-| 2.20 | Verify end-to-end: launch game with mod, run Python script, observe hero movement and door opening in-game. Document with screenshots/logs. | 2.18 | `docs/ipc-verification.md` | US-2, US-3 |
+| 2.17 | ~~Create Python IPC client (`ipc_client.py`) using standard `socket` library with length-prefixed JSON framing matching the C# side.~~ ✅ DONE | 2.1 | `src/agent/ipc_client.py` | REQ-U3 |
+| 2.18 | ~~Write a Python integration test script that: connects, receives one state message (verifying door/passive/faction fields), sends a `MOVE_HERO` command, sends an `OPEN_DOOR` command (with hero in correct room), and asserts success responses.~~ ✅ DONE | 2.2, 2.4, 2.5, 2.17 | `tests/test_ipc_integration.py` | REQ-E2, REQ-U7 |
+| 2.19 | ~~Write a negative test: send `OPEN_DOOR` with hero NOT in source room; assert error response.~~ ✅ DONE | 2.5, 2.17 | Test case in `tests/test_ipc_integration.py` | REQ-W4 |
+| 2.20 | ~~Verify end-to-end: launch game with mod, run Python script, observe hero movement and door opening in-game. Document with screenshots/logs.~~ ✅ DONE | 2.18 | `docs/ipc-verification.md` | US-2, US-3 |
 
 ---
 

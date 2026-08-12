@@ -42,11 +42,11 @@
 | 2.7 | ~~Implement `PowerRoomHandler` and `UnpowerRoomHandler`; reject unpower attempts on auto-powered rooms.~~ ✅ DONE | 1.2, 2.3 | `src/mod/Actions/PowerRoomHandler.cs` | REQ-E2 |
 | 2.8 | ~~Implement `RecruitHeroHandler` that validates recruiter hero is in the same room as the recruit, deducts food cost.~~ ✅ DONE | 1.2, 2.3 | `src/mod/Actions/RecruitHeroHandler.cs` | REQ-E2, US-9 |
 | 2.9 | ~~Implement `BuyFromMerchantHandler` that validates hero is in merchant's room, deducts dust cost.~~ ✅ DONE | 1.2, 2.3 | `src/mod/Actions/BuyFromMerchantHandler.cs` | REQ-E2, US-9 |
-| 2.10 | Implement `EquipItemHandler` and `UnequipItemHandler` for managing hero equipment slots. | 1.2, 2.3 | `src/mod/Actions/EquipItemHandler.cs` | REQ-E2, US-9 |
-| 2.11 | Implement `CollectItemHandler` that validates hero is in the item's room before collecting. | 1.2, 2.3 | `src/mod/Actions/CollectItemHandler.cs` | REQ-E7, US-9 |
-| 2.12 | Implement `PickUpCrystalHandler` that validates hero is in crystal room; sets `is_carrying_crystal`. | 1.2, 2.3 | `src/mod/Actions/PickUpCrystalHandler.cs` | REQ-E2, US-10 |
-| 2.13 | Implement `LevelUpHeroHandler` and `HealHeroHandler`. | 1.2, 2.3 | `src/mod/Actions/LevelUpHeroHandler.cs`, `HealHeroHandler.cs` | REQ-E2 |
-| 2.14 | Implement `ResearchHandler` for queueing research. | 1.2, 2.3 | `src/mod/Actions/ResearchHandler.cs` | REQ-E2, US-8 |
+| 2.10 | ~~Implement `EquipItemHandler` and `UnequipItemHandler` for managing hero equipment slots.~~ ✅ DONE | 1.2, 2.3 | `src/mod/Actions/EquipItemHandler.cs` | REQ-E2, US-9 |
+| 2.11 | ~~Implement `CollectItemHandler` that validates hero is in the item's room before collecting.~~ ✅ DONE | 1.2, 2.3 | `src/mod/Actions/CollectItemHandler.cs` | REQ-E7, US-9 |
+| 2.12 | ~~Implement `PickUpCrystalHandler` that validates hero is in crystal room; sets `is_carrying_crystal`.~~ ✅ DONE | 1.2, 2.3 | `src/mod/Actions/PickUpCrystalHandler.cs` | REQ-E2, US-10 |
+| 2.13 | ~~Implement `LevelUpHeroHandler` and `HealHeroHandler`.~~ ✅ DONE | 1.2, 2.3 | `src/mod/Actions/LevelUpHeroHandler.cs`, `HealHeroHandler.cs` | REQ-E2 |
+| 2.14 | ~~Implement `ResearchHandler` for queueing research.~~ ✅ DONE | 1.2, 2.3 | `src/mod/Actions/ResearchHandler.cs` | REQ-E2, US-8 |
 | 2.15 | Implement error handling: malformed JSON returns `ActionResult{success=false}`; Python timeout triggers game pause. | 2.3 | Error paths in `ActionRouter.cs` | REQ-W1, REQ-W2 |
 | 2.16 | Implement retry/reconnection logic in `IpcBridge`: if Python TCP client disconnects, accept new connections with BepInEx log warnings. | 2.1 | Reconnection loop in `IpcBridge.cs` | REQ-S3 |
 | 2.17 | Create Python IPC client (`ipc_client.py`) using standard `socket` library with length-prefixed JSON framing matching the C# side. | 2.1 | `src/agent/ipc_client.py` | REQ-U3 |

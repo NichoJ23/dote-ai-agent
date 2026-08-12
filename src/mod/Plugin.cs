@@ -46,6 +46,13 @@ namespace DotEAgent
             actionRouter.RegisterHandler(new UnpowerRoomHandler(stateManager.GetDungeonHook()));
             actionRouter.RegisterHandler(new RecruitHeroHandler(stateManager.GetDungeonHook()));
             actionRouter.RegisterHandler(new BuyFromMerchantHandler(stateManager.GetDungeonHook()));
+            actionRouter.RegisterHandler(new EquipItemHandler(stateManager.GetDungeonHook()));
+            actionRouter.RegisterHandler(new UnequipItemHandler(stateManager.GetDungeonHook()));
+            actionRouter.RegisterHandler(new CollectItemHandler(stateManager.GetDungeonHook()));
+            actionRouter.RegisterHandler(new PickUpCrystalHandler(stateManager.GetDungeonHook()));
+            actionRouter.RegisterHandler(new LevelUpHeroHandler(stateManager.GetDungeonHook()));
+            actionRouter.RegisterHandler(new HealHeroHandler(stateManager.GetDungeonHook()));
+            actionRouter.RegisterHandler(new ResearchHandler(stateManager.GetDungeonHook()));
         }
 
         private void Update()

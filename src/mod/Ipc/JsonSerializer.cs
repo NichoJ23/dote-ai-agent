@@ -63,6 +63,10 @@ namespace DotEAgent.Ipc
             sb.Append(",\"shared_inventory_items\":");
             SerializeBackpackItemList(sb, state.SharedInventoryItems);
 
+            // Researchable blueprints
+            sb.Append(",\"researchable_blueprints\":");
+            SerializeStringList(sb, state.ResearchableBlueprints);
+
             sb.Append("}");
             return sb.ToString();
         }

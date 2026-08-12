@@ -105,6 +105,7 @@ namespace DotEAgent
             payload.RecruitableHeroes = recruits ?? new List<RecruitableHeroData>();
             payload.DroppedItems = items ?? new List<DroppedItemData>();
             ExtractInventories(payload);
+            ExtractResearchableBlueprints(payload);
 
             return payload;
         }
@@ -153,6 +154,25 @@ namespace DotEAgent
                     else if (isShared)
                         payload.SharedInventoryItems.Add(data);
                 }
+            }
+        }
+
+        private void ExtractResearchableBlueprints(GameStatePayload payload)
+        {
+            payload.ResearchableBlueprints = new List<string>();
+
+            Dungeon dungeon = SingletonManager.Get<Dungeon>(false);
+            if (dungeon == null)
+                return;
+
+            BluePrintConfig[] bps = dungeon.GetResearchableBPs();
+            if (bps == null)
+                return;
+
+            for (int i = 0; i < bps.Length; i++)
+            {
+                if (bps[i] != null)
+                    payload.ResearchableBlueprints.Add(bps[i].Name.ToString());
             }
         }
     }

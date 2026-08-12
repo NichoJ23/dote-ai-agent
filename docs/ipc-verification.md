@@ -75,23 +75,23 @@ All game state fields verified in integration test output:
 
 | Script | Tests |
 |--------|-------|
-| `scripts/test_ipc_receive.py` | State receive + field validation |
-| `scripts/test_action_routing.py` | Unknown command, malformed JSON, missing fields |
-| `scripts/test_move_hero.py` | Valid move, invalid hero, invalid room |
-| `scripts/test_open_door.py` | REQ-W4 validation, valid door open |
-| `scripts/test_build_module.py` | Build with real blueprint, invalid room, repair validation |
-| `scripts/test_power_room.py` | Power/unpower, auto-power rejection |
-| `scripts/test_recruit_hero.py` | Same-room validation, valid recruitment |
-| `scripts/test_buy_from_merchant.py` | Room validation, valid purchase |
-| `scripts/test_equip_item.py` | Equip from inventory, unequip, invalid item |
-| `scripts/test_unequip_item.py` | Valid unequip |
-| `scripts/test_collect_item.py` | Move to item room |
-| `scripts/test_pick_up_crystal.py` | Crystal room validation, crystal pickup |
-| `scripts/test_levelup_heal.py` | Level up with verification, heal |
-| `scripts/test_research.py` | Blueprint validation, artifact presence |
-| `scripts/test_timeout_pause.py` | 5s timeout → pause, action → resume |
-| `scripts/test_reconnection.py` | Disconnect/reconnect both ports |
-| `scripts/test_ipc_client.py` | IpcClient class: connect, send, receive, context manager |
+| `tests/test_ipc_receive.py` | State receive + field validation |
+| `tests/test_action_routing.py` | Unknown command, malformed JSON, missing fields |
+| `tests/test_move_hero.py` | Valid move, invalid hero, invalid room |
+| `tests/test_open_door.py` | REQ-W4 validation, valid door open |
+| `tests/test_build_module.py` | Build with real blueprint, invalid room, repair validation |
+| `tests/test_power_room.py` | Power/unpower, auto-power rejection |
+| `tests/test_recruit_hero.py` | Same-room validation, valid recruitment |
+| `tests/test_buy_from_merchant.py` | Room validation, valid purchase |
+| `tests/test_equip_item.py` | Equip from inventory, unequip, invalid item |
+| `tests/test_unequip_item.py` | Valid unequip |
+| `tests/test_collect_item.py` | Move to item room |
+| `tests/test_pick_up_crystal.py` | Crystal room validation, crystal pickup |
+| `tests/test_levelup_heal.py` | Level up with verification, heal |
+| `tests/test_research.py` | Blueprint validation, artifact presence |
+| `tests/test_timeout_pause.py` | 5s timeout → pause, action → resume |
+| `tests/test_reconnection.py` | Disconnect/reconnect both ports |
+| `tests/test_ipc_client.py` | IpcClient class: connect, send, receive, context manager |
 | `tests/test_ipc_integration.py` | Full round-trip: state + MOVE_HERO + OPEN_DOOR |
 
 ## Key Implementation Notes

@@ -57,10 +57,51 @@ namespace DotEAgent.Ipc
 
         /// <summary>
         /// Attempts to accept any pending client connections on both ports.
+        /// Also detects dead connections and cleans them up.
         /// Call this every frame so connections are picked up promptly.
         /// </summary>
         public void AcceptClients()
         {
+            // Detect dead action client (TCP doesn't notify us of remote close)
+            if (actionClient != null && actionStream != null)
+            {
+                try
+                {
+                    if (actionClient.Client.Poll(0, System.Net.Sockets.SelectMode.SelectRead))
+                    {
+                        byte[] peek = new byte[1];
+                        if (actionClient.Client.Receive(peek, System.Net.Sockets.SocketFlags.Peek) == 0)
+                        {
+                            DisconnectAction();
+                        }
+                    }
+                }
+                catch (Exception)
+                {
+                    DisconnectAction();
+                }
+            }
+
+            // Detect dead state client
+            if (stateClient != null && stateStream != null)
+            {
+                try
+                {
+                    if (stateClient.Client.Poll(0, System.Net.Sockets.SelectMode.SelectRead))
+                    {
+                        byte[] peek = new byte[1];
+                        if (stateClient.Client.Receive(peek, System.Net.Sockets.SocketFlags.Peek) == 0)
+                        {
+                            DisconnectState();
+                        }
+                    }
+                }
+                catch (Exception)
+                {
+                    DisconnectState();
+                }
+            }
+
             TryAcceptStateClient();
             TryAcceptActionClient();
         }

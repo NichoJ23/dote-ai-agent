@@ -17,6 +17,9 @@ namespace DotEAgent.Ipc
         private readonly IpcBridge bridge;
         private readonly Dictionary<string, IActionHandler> handlers;
 
+        /// <summary>True if an action was received and processed this frame.</summary>
+        public bool LastActionReceivedThisFrame { get; private set; }
+
         public ActionRouter(IpcBridge bridge)
         {
             this.bridge = bridge;
@@ -36,12 +39,16 @@ namespace DotEAgent.Ipc
         /// </summary>
         public void ProcessActions()
         {
+            LastActionReceivedThisFrame = false;
+
             if (!bridge.IsActionConnected)
                 return;
 
             string json = bridge.PollAction();
             if (json == null)
                 return;
+
+            LastActionReceivedThisFrame = true;
 
             // Deserialize
             ActionCommand command = JsonDeserializer.DeserializeAction(json);

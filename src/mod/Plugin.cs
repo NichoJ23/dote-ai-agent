@@ -27,6 +27,9 @@ namespace DotEAgent
         private int lastSentTurn = -1;
         private string lastSentPhase = "";
         private bool wasStateConnected = false;
+        private float lastStateSentTime = 0f;
+        private float actionTimeoutSeconds = 5f;
+        private bool pausedForTimeout = false;
 
         private void Awake()
         {
@@ -92,6 +95,7 @@ namespace DotEAgent
                     ipcBridge.SendState(json);
                     lastSentTurn = state.Turn;
                     lastSentPhase = state.GamePhase;
+                    lastStateSentTime = Time.unscaledTime;
                     if (newConnection)
                         Log.LogInfo("IPC: Sent initial state to newly connected client");
                 }
@@ -103,6 +107,38 @@ namespace DotEAgent
 
             // Poll and process incoming action commands
             actionRouter.ProcessActions();
+
+            // If we received an action while paused, unpause immediately
+            if (pausedForTimeout && actionRouter.LastActionReceivedThisFrame)
+            {
+                pausedForTimeout = false;
+                IGameControlService gcs = Services.GetService<IGameControlService>();
+                if (gcs != null)
+                    gcs.SetGamePause(false, true);
+                lastStateSentTime = Time.unscaledTime;
+                Log.LogInfo("IPC: Agent responded - game resumed");
+            }
+
+            // Timeout handling: if Python agent is connected but not responding
+            // during Action phase, pause the game to prevent it from running uncontrolled.
+            if (!pausedForTimeout && ipcBridge.IsActionConnected && state.GamePhase == "Action")
+            {
+                float elapsed = Time.unscaledTime - lastStateSentTime;
+                if (elapsed > actionTimeoutSeconds)
+                {
+                    pausedForTimeout = true;
+                    IGameControlService gcs = Services.GetService<IGameControlService>();
+                    if (gcs != null)
+                        gcs.SetGamePause(true, true);
+                    Log.LogWarning("IPC: Python agent timeout (" + actionTimeoutSeconds + "s) - game paused");
+                }
+            }
+
+            // Reset timeout when agent responds (even if not paused yet)
+            if (actionRouter.LastActionReceivedThisFrame)
+            {
+                lastStateSentTime = Time.unscaledTime;
+            }
 
             // Track mob changes mid-turn (they spawn after turn increments)
             lastMobCount = state.Mobs.Count;

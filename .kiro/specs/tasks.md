@@ -47,8 +47,8 @@
 | 2.12 | ~~Implement `PickUpCrystalHandler` that validates hero is in crystal room; sets `is_carrying_crystal`.~~ ✅ DONE | 1.2, 2.3 | `src/mod/Actions/PickUpCrystalHandler.cs` | REQ-E2, US-10 |
 | 2.13 | ~~Implement `LevelUpHeroHandler` and `HealHeroHandler`.~~ ✅ DONE | 1.2, 2.3 | `src/mod/Actions/LevelUpHeroHandler.cs`, `HealHeroHandler.cs` | REQ-E2 |
 | 2.14 | ~~Implement `ResearchHandler` for queueing research.~~ ✅ DONE | 1.2, 2.3 | `src/mod/Actions/ResearchHandler.cs` | REQ-E2, US-8 |
-| 2.15 | Implement error handling: malformed JSON returns `ActionResult{success=false}`; Python timeout triggers game pause. | 2.3 | Error paths in `ActionRouter.cs` | REQ-W1, REQ-W2 |
-| 2.16 | Implement retry/reconnection logic in `IpcBridge`: if Python TCP client disconnects, accept new connections with BepInEx log warnings. | 2.1 | Reconnection loop in `IpcBridge.cs` | REQ-S3 |
+| 2.15 | ~~Implement error handling: malformed JSON returns `ActionResult{success=false}`; Python timeout triggers game pause.~~ ✅ DONE | 2.3 | Error paths in `ActionRouter.cs` | REQ-W1, REQ-W2 |
+| 2.16 | ~~Implement retry/reconnection logic in `IpcBridge`: if Python TCP client disconnects, accept new connections with BepInEx log warnings.~~ ✅ DONE | 2.1 | Reconnection loop in `IpcBridge.cs` | REQ-S3 |
 | 2.17 | Create Python IPC client (`ipc_client.py`) using standard `socket` library with length-prefixed JSON framing matching the C# side. | 2.1 | `src/agent/ipc_client.py` | REQ-U3 |
 | 2.18 | Write a Python integration test script that: connects, receives one state message (verifying door/passive/faction fields), sends a `MOVE_HERO` command, sends an `OPEN_DOOR` command (with hero in correct room), and asserts success responses. | 2.2, 2.4, 2.5, 2.17 | `tests/test_ipc_integration.py` | REQ-E2, REQ-U7 |
 | 2.19 | Write a negative test: send `OPEN_DOOR` with hero NOT in source room; assert error response. | 2.5, 2.17 | Test case in `tests/test_ipc_integration.py` | REQ-W4 |

@@ -27,7 +27,7 @@ class GuidelinesConfig:
 
     # GL-1: Retreat any hero below this HP% toward crystal room
     retreat_enabled: bool = True
-    retreat_hp_threshold: float = 0.30
+    retreat_hp_threshold: float = 0.50
 
     # GL-2: Preferred starting hero pair
     preferred_starting_heroes: list[str] = field(

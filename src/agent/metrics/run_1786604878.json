@@ -1,0 +1,42 @@
+{
+  "run_id": "run_1786604878",
+  "start_time": "2026-08-13 00:07:58",
+  "total_floors_survived": 0,
+  "final_outcome": "aborted",
+  "summary": {
+    "total_turns": 5,
+    "total_rooms_explored": 5,
+    "total_mobs_killed": 5,
+    "total_heroes_lost": 0,
+    "total_actions": 26
+  },
+  "floors": [
+    {
+      "floor_number": 1,
+      "turns_survived": 5,
+      "rooms_explored": 5,
+      "doors_opened": 1,
+      "modules_built": 7,
+      "mobs_killed": 5,
+      "heroes_lost": 0,
+      "heroes_recruited": 0,
+      "items_equipped": 0,
+      "items_bought": 0,
+      "dust_collected": 0.0,
+      "peak_industry": 36.0,
+      "peak_food": 38.0,
+      "peak_science": 34.0,
+      "peak_dust": 57.0,
+      "actions_taken": 26,
+      "actions_failed": 4,
+      "action_breakdown": {
+        "OPEN_DOOR": 4,
+        "POWER_ROOM": 4,
+        "BUILD_MODULE": 7,
+        "MOVE_HERO": 11
+      },
+      "outcome": "aborted",
+      "duration_seconds": 85.17
+    }
+  ]
+}

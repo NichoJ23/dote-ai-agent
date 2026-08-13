@@ -22,6 +22,7 @@ namespace DotEAgent.Ipc
             AppendString(sb, "crystal_state", state.CrystalState, false);
             AppendInt(sb, "exit_room_index", state.ExitRoomIndex, false);
             AppendInt(sb, "start_room_index", state.StartRoomIndex, false);
+            AppendFloat(sb, "time_scale", state.TimeScale, false);
 
             // Resources
             sb.Append(",\"resources\":");

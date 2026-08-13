@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using Amplitude.Unity.Framework;
 using DotEAgent.Hooks;
 using DotEAgent.Models;
 
@@ -29,15 +28,9 @@ namespace DotEAgent.Actions
             if (roomIndex < 0)
                 return "Missing or invalid parameter: room_index";
 
-            Dungeon dungeon = SingletonManager.Get<Dungeon>(false);
-            if (dungeon == null || dungeon.OpenedRooms == null)
-                return "Dungeon not available";
-
-            List<Room> rooms = dungeon.OpenedRooms;
-            if (roomIndex >= rooms.Count)
-                return "Invalid room_index: " + roomIndex;
-
-            Room room = rooms[roomIndex];
+            Room room = dungeonHook.GetRoomByOpeningIndex(roomIndex);
+            if (room == null)
+                return "Invalid room_index: " + roomIndex + " (room not found)";
 
             if (!room.IsPowered)
                 return "Room " + roomIndex + " is already unpowered";
@@ -55,8 +48,7 @@ namespace DotEAgent.Actions
         {
             int roomIndex = command.GetInt("room_index", -1);
 
-            Dungeon dungeon = SingletonManager.Get<Dungeon>(false);
-            Room room = dungeon.OpenedRooms[roomIndex];
+            Room room = dungeonHook.GetRoomByOpeningIndex(roomIndex);
 
             // TogglePower on a powered room calls UnpowerByPlayer
             room.TogglePower();

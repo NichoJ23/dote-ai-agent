@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using Amplitude.Unity.Framework;
 using DotEAgent.Hooks;
 using DotEAgent.Models;
 
@@ -42,13 +41,9 @@ namespace DotEAgent.Actions
             if (!hero.IsUsable)
                 return "Hero is not usable: " + heroName;
 
-            Dungeon dungeon = SingletonManager.Get<Dungeon>(false);
-            if (dungeon == null || dungeon.OpenedRooms == null)
-                return "Dungeon not available";
-
-            List<Room> rooms = dungeon.OpenedRooms;
-            if (roomIndex >= rooms.Count)
-                return "Invalid room_index: " + roomIndex;
+            Room targetRoom = dungeonHook.GetRoomByOpeningIndex(roomIndex);
+            if (targetRoom == null)
+                return "Invalid room_index: " + roomIndex + " (room not found)";
 
             return null;
         }
@@ -59,8 +54,7 @@ namespace DotEAgent.Actions
             int roomIndex = command.GetInt("room_index", -1);
 
             Hero hero = FindHeroByName(heroName);
-            Dungeon dungeon = SingletonManager.Get<Dungeon>(false);
-            Room targetRoom = dungeon.OpenedRooms[roomIndex];
+            Room targetRoom = dungeonHook.GetRoomByOpeningIndex(roomIndex);
 
             // Move hero to room — items are auto-collected on arrival
             // MoveToRoom(Room destination, bool immediate, bool cancelOperating, bool cancelInteracting)

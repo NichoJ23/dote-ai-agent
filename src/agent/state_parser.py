@@ -189,6 +189,7 @@ class GameStatePayload(BaseModel):
     backpack_items: list[BackpackItem] = Field(default_factory=list)
     shared_inventory_items: list[BackpackItem] = Field(default_factory=list)
     researchable_blueprints: list[ResearchBlueprint] = Field(default_factory=list)
+    time_scale: float = 1.0
 
     @field_validator("researchable_blueprints", mode="before")
     @classmethod
@@ -218,8 +219,11 @@ class GameStatePayload(BaseModel):
 
     @property
     def is_game_over(self) -> bool:
-        """True if crystal is unplugged (destroyed)."""
-        return self.crystal_state == "Unplugged"
+        """True if crystal is destroyed (unplugged and no hero carrying it)."""
+        if self.crystal_state != "Unplugged":
+            return False
+        # If a hero is carrying it, it's not game over — just in transit
+        return not any(h.has_crystal for h in self.heroes)
 
     @property
     def is_escaping(self) -> bool:

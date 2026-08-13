@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using Amplitude.Unity.Framework;
 using DotEAgent.Hooks;
 using DotEAgent.Models;
 
@@ -48,15 +47,10 @@ namespace DotEAgent.Actions
                 return "Hero is not usable: " + heroName;
 
             // Validate hero is in from_room (REQ-W4)
-            Dungeon dungeon = SingletonManager.Get<Dungeon>(false);
-            if (dungeon == null || dungeon.OpenedRooms == null)
-                return "Dungeon not available";
+            Room fromRoom = dungeonHook.GetRoomByOpeningIndex(fromRoomIndex);
+            if (fromRoom == null)
+                return "Invalid from_room_index: " + fromRoomIndex + " (room not found)";
 
-            List<Room> rooms = dungeon.OpenedRooms;
-            if (fromRoomIndex >= rooms.Count)
-                return "Invalid from_room_index: " + fromRoomIndex;
-
-            Room fromRoom = rooms[fromRoomIndex];
             Room heroRoom = hero.RoomElement.ParentRoom;
 
             if (heroRoom != fromRoom)
@@ -67,7 +61,7 @@ namespace DotEAgent.Actions
             }
 
             // Find the closed door between from and target
-            Door door = FindDoorBetween(fromRoom, targetRoomIndex, rooms);
+            Door door = FindDoorBetween(fromRoom, targetRoomIndex);
             if (door == null)
                 return "No closed door found between room " + fromRoomIndex + " and room " + targetRoomIndex;
 
@@ -88,11 +82,9 @@ namespace DotEAgent.Actions
             int targetRoomIndex = command.GetInt("target_room_index", -1);
 
             Hero hero = FindHeroByName(heroName);
-            Dungeon dungeon = SingletonManager.Get<Dungeon>(false);
-            List<Room> rooms = dungeon.OpenedRooms;
-            Room fromRoom = rooms[fromRoomIndex];
+            Room fromRoom = dungeonHook.GetRoomByOpeningIndex(fromRoomIndex);
 
-            Door door = FindDoorBetween(fromRoom, targetRoomIndex, rooms);
+            Door door = FindDoorBetween(fromRoom, targetRoomIndex);
 
             // MoveToDoor triggers the full open sequence: hero walks to door, door opens,
             // room reveals, mobs spawn, phase transitions
@@ -110,7 +102,7 @@ namespace DotEAgent.Actions
         /// <summary>
         /// Finds a closed door connecting fromRoom to the room at targetRoomIndex.
         /// </summary>
-        private Door FindDoorBetween(Room fromRoom, int targetRoomIndex, List<Room> allRooms)
+        private Door FindDoorBetween(Room fromRoom, int targetRoomIndex)
         {
             List<Door> openableDoors = Door.OpenableDoors;
             if (openableDoors == null)
@@ -124,7 +116,7 @@ namespace DotEAgent.Actions
 
                 // Check if this door connects fromRoom to the target
                 // Note: target room may not be in OpenedRooms yet (it's behind the door)
-                // So we check if one side is fromRoom and the other side's index matches target
+                // So we check if one side is fromRoom and the other side's OpeningIndex matches target
                 // OR if target is -1 (not yet opened), we check Room2 isn't in our indexed rooms
                 if (door.Room1 == fromRoom)
                 {

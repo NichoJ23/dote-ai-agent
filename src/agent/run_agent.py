@@ -141,7 +141,21 @@ class AgentRunner:
                 elif floor_metrics.outcome == "escaped":
                     logger.info(f"Floor {floor_metrics.floor_number} escaped!")
                     if floors_played < self.max_floors:
-                        # Wait for next floor state
+                        # Send NEXT_FLOOR to skip dialogue and start next level
+                        logger.info("Sending NEXT_FLOOR command...")
+                        try:
+                            import time as _time
+                            _time.sleep(3.0)  # Give game time to show lift panel
+                            result = self._ipc.send_action("NEXT_FLOOR", {})
+                            if not result.get("success", False):
+                                logger.warning(f"NEXT_FLOOR failed: {result.get('error')}, retrying...")
+                                _time.sleep(5.0)
+                                result = self._ipc.send_action("NEXT_FLOOR", {})
+                        except Exception as e:
+                            logger.error(f"Failed to start next floor: {e}")
+                            break
+
+                        # Wait for next floor dungeon to load
                         try:
                             next_state_dict = self._ipc.wait_for_state(
                                 condition=lambda s: len(s.get("rooms", [])) > 0,
@@ -213,9 +227,9 @@ class AgentRunner:
                 return floor_metrics
 
             if current_state.is_escaping:
-                # Still need to process escape actions, but check if we've succeeded
-                # (crystal on exit slot means escape sequence started — wait for completion)
-                pass
+                # Crystal is on exit slot — floor is complete
+                floor_metrics.finish("escaped")
+                return floor_metrics
 
             # Get action from agent
             action = self._agent.select_action(current_state)
@@ -388,19 +402,17 @@ class AgentRunner:
         target_room: int,
         current_state: GameStatePayload,
         floor_metrics,
-        timeout: float = 5.0,
     ) -> GameStatePayload:
         """
-        Wait until dropped items in a room are picked up by the hero.
+        Wait for hero to pick up items in a room.
 
-        Heroes auto-collect items after arriving, but it takes a moment.
-        Poll until dropped_items no longer lists items in that room.
+        Heroes auto-collect items after arriving, but it takes a few seconds.
+        Wait time adjusts based on game time_scale (faster game = shorter wait).
 
         Args:
             target_room: The room where items should be collected.
             current_state: Current game state.
             floor_metrics: Floor metrics to update.
-            timeout: Max seconds to wait.
 
         Returns:
             The latest game state.
@@ -412,21 +424,22 @@ class AgentRunner:
         if not items_in_room:
             return current_state
 
+        # 4 game-seconds to pick up, divided by time_scale for wall-clock wait
+        time_scale = max(current_state.time_scale, 0.1)
+        timeout = 4.0 / time_scale
+
+        logger.debug(f"Waiting {timeout:.1f}s (game 4s at {time_scale}x) for {len(items_in_room)} items in room {target_room}")
+
+        # Fixed wait — drain any state updates that arrive during this time
         start = _time.time()
         while _time.time() - start < timeout:
             try:
-                next_state_dict = self._ipc.receive_state(timeout=1.5)
+                next_state_dict = self._ipc.receive_state(timeout=1.0)
                 current_state = self._parser.parse(next_state_dict)
                 floor_metrics.update_from_state(current_state)
-
-                items_remaining = [i for i in current_state.dropped_items if i.room_index == target_room]
-                if len(items_remaining) < len(items_in_room):
-                    logger.debug(f"Items picked up in room {target_room}")
-                    return current_state
             except TimeoutError:
                 continue
 
-        logger.debug(f"Timed out waiting for item pickup in room {target_room}")
         return current_state
 
     def _setup_signal_handlers(self) -> None:

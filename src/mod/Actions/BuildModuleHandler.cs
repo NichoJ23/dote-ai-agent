@@ -34,15 +34,10 @@ namespace DotEAgent.Actions
             if (string.IsNullOrEmpty(moduleName))
                 return "Missing required parameter: module_name";
 
-            Dungeon dungeon = SingletonManager.Get<Dungeon>(false);
-            if (dungeon == null || dungeon.OpenedRooms == null)
-                return "Dungeon not available";
+            Room room = dungeonHook.GetRoomByOpeningIndex(roomIndex);
+            if (room == null)
+                return "Invalid room_index: " + roomIndex + " (room not found)";
 
-            List<Room> rooms = dungeon.OpenedRooms;
-            if (roomIndex >= rooms.Count)
-                return "Invalid room_index: " + roomIndex;
-
-            Room room = rooms[roomIndex];
             if (!room.IsFullyOpened)
                 return "Room " + roomIndex + " is not fully opened";
 
@@ -54,8 +49,7 @@ namespace DotEAgent.Actions
             int roomIndex = command.GetInt("room_index", -1);
             string moduleName = command.GetString("module_name");
 
-            Dungeon dungeon = SingletonManager.Get<Dungeon>(false);
-            Room room = dungeon.OpenedRooms[roomIndex];
+            Room room = dungeonHook.GetRoomByOpeningIndex(roomIndex);
 
             GameNetworkManager netManager = SingletonManager.Get<GameNetworkManager>(true);
             ulong playerID = netManager.GetLocalPlayerID();

@@ -96,6 +96,7 @@ namespace DotEAgent
             payload.CrystalState = dungeonState.CrystalState;
             payload.ExitRoomIndex = dungeonState.ExitRoomIndex;
             payload.StartRoomIndex = dungeonState.StartRoomIndex;
+            payload.TimeScale = UnityEngine.Time.timeScale;
             payload.Resources = resources;
             payload.Rooms = dungeonState.Rooms;
             payload.ClosedDoors = dungeonState.ClosedDoors;

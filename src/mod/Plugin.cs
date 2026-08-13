@@ -35,6 +35,11 @@ namespace DotEAgent
         {
             Log = Logger;
             Log.LogInfo(PluginName + " v" + PluginVersion + " loaded!");
+
+            // Speed up game for faster testing
+            Time.timeScale = 2f;
+            Log.LogInfo("Game speed set to 2x");
+
             stateManager = new StateManager();
 
             ipcBridge = new IpcBridge();
@@ -59,6 +64,8 @@ namespace DotEAgent
 
             // Floor exit handler
             actionRouter.RegisterHandler(new ExitFloorHandler(stateManager.GetDungeonHook()));
+            actionRouter.RegisterHandler(new PlugCrystalExitHandler(stateManager.GetDungeonHook()));
+            actionRouter.RegisterHandler(new NextFloorHandler(stateManager.GetDungeonHook()));
 
             // Menu/lifecycle handlers (work before dungeon loads)
             actionRouter.RegisterHandler(new MenuActionHandler("QUERY_MENU_STATE"));

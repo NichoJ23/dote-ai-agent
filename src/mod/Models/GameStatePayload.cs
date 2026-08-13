@@ -25,5 +25,6 @@ namespace DotEAgent.Models
         public List<ResearchBlueprintData> ResearchableBlueprints; // Currently available research options
         public int ExitRoomIndex;
         public int StartRoomIndex;
+        public float TimeScale;
     }
 }

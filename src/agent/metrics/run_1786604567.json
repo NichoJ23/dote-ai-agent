@@ -1,0 +1,14 @@
+{
+  "run_id": "run_1786604567",
+  "start_time": "2026-08-13 00:02:47",
+  "total_floors_survived": 0,
+  "final_outcome": "aborted",
+  "summary": {
+    "total_turns": 0,
+    "total_rooms_explored": 0,
+    "total_mobs_killed": 0,
+    "total_heroes_lost": 0,
+    "total_actions": 0
+  },
+  "floors": []
+}

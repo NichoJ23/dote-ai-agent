@@ -461,13 +461,13 @@ class TestRetreatActions:
     """Test RETREAT phase action generation."""
 
     def test_retreat_moves_wounded_hero_to_crystal(self):
-        """Agent moves wounded hero toward crystal room."""
+        """Agent moves wounded hero toward room 1 (rally point)."""
         agent = HeuristicAgent()
         s = _base_state(phase="Action")
-        s["heroes"][0]["hp"] = 30.0  # 12% HP — below 30% threshold
-        s["heroes"][0]["room_index"] = 1  # Not in crystal room
+        s["heroes"][0]["hp"] = 30.0  # 12% HP — below 50% threshold
+        s["heroes"][0]["room_index"] = 2  # Not in rally room (room 1)
         s["mobs"] = [
-            {"type": "Zed", "room_index": 1, "hp": 50.0, "max_hp": 80.0, "target_type": "AntiHeroMob"}
+            {"type": "Zed", "room_index": 2, "hp": 50.0, "max_hp": 80.0, "target_type": "AntiHeroMob"}
         ]
         state = _parse(s)
 
@@ -476,8 +476,8 @@ class TestRetreatActions:
         assert action is not None
         assert action["command"] == "MOVE_HERO"
         assert action["parameters"]["hero_name"] == "Max O'Kane"
-        # Crystal room is 0, hero is in room 1, path is 1->0
-        assert action["parameters"]["target_room_index"] == 0
+        # Rally room is 1, hero is in room 2, path is 2->0->1 or direct
+        assert action["parameters"]["target_room_index"] in (0, 1)
 
     def test_retreat_skips_crystal_carrier(self):
         """Agent doesn't retreat the crystal carrier."""

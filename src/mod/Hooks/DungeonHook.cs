@@ -30,11 +30,15 @@ namespace DotEAgent.Hooks
             if (openedRooms == null || openedRooms.Count == 0)
                 return null;
 
-            // Build room index lookup (Room -> index in our list)
+            // Build room index lookup using Room.OpeningIndex + 1 as the stable identifier.
+            // The game shuffles dungeon.OpenedRooms in-place during wave spawning,
+            // so list position is NOT stable. OpeningIndex is assigned once when a room
+            // is first opened and never changes. We add 1 so that the crystal room (OpeningIndex=0)
+            // becomes index 1, reserving -1 as the "not found / unopened" sentinel.
             roomIndexCache = new Dictionary<Room, int>();
             for (int i = 0; i < openedRooms.Count; i++)
             {
-                roomIndexCache[openedRooms[i]] = i;
+                roomIndexCache[openedRooms[i]] = openedRooms[i].OpeningIndex + 1;
             }
 
             var state = new DungeonStateData();
@@ -51,7 +55,7 @@ namespace DotEAgent.Hooks
             state.Rooms = new List<RoomStateData>(openedRooms.Count);
             for (int i = 0; i < openedRooms.Count; i++)
             {
-                state.Rooms.Add(ExtractRoomState(openedRooms[i], i));
+                state.Rooms.Add(ExtractRoomState(openedRooms[i], openedRooms[i].OpeningIndex + 1));
             }
 
             // Extract closed doors
@@ -79,6 +83,26 @@ namespace DotEAgent.Hooks
         public Dictionary<Room, int> GetRoomIndexCache()
         {
             return roomIndexCache;
+        }
+
+        /// <summary>
+        /// Finds a Room by its stable index (OpeningIndex + 1). Returns null if not found.
+        /// Use this instead of dungeon.OpenedRooms[index] since the list gets shuffled.
+        /// </summary>
+        public Room GetRoomByOpeningIndex(int roomIndex)
+        {
+            if (dungeon == null || roomIndex < 0)
+                return null;
+            List<Room> openedRooms = dungeon.OpenedRooms;
+            if (openedRooms == null)
+                return null;
+            int targetOpeningIndex = roomIndex - 1;
+            for (int i = 0; i < openedRooms.Count; i++)
+            {
+                if (openedRooms[i].OpeningIndex == targetOpeningIndex)
+                    return openedRooms[i];
+            }
+            return null;
         }
 
         private RoomStateData ExtractRoomState(Room room, int index)

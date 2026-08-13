@@ -1,23 +1,24 @@
 using System.Collections.Generic;
+using Amplitude.Unity.Framework;
 using DotEAgent.Hooks;
 using DotEAgent.Models;
 
 namespace DotEAgent.Actions
 {
     /// <summary>
-    /// Handles MOVE_HERO command: moves a hero to a target room.
-    /// 
+    /// Handles PLUG_CRYSTAL_EXIT command: orders the crystal carrier to plug the crystal
+    /// into the exit room's crystal slot, triggering floor completion.
+    ///
     /// Parameters:
-    ///   hero_name (string, required) - Name of the hero to move
-    ///   target_room_index (int, required) - Index of the destination room
+    ///   hero_name (string, required) - Name of the hero carrying the crystal
     /// </summary>
-    public class MoveHeroHandler : IActionHandler
+    public class PlugCrystalExitHandler : IActionHandler
     {
         private readonly DungeonHook dungeonHook;
 
-        public string CommandType { get { return "MOVE_HERO"; } }
+        public string CommandType { get { return "PLUG_CRYSTAL_EXIT"; } }
 
-        public MoveHeroHandler(DungeonHook dungeonHook)
+        public PlugCrystalExitHandler(DungeonHook dungeonHook)
         {
             this.dungeonHook = dungeonHook;
         }
@@ -28,48 +29,50 @@ namespace DotEAgent.Actions
             if (string.IsNullOrEmpty(heroName))
                 return "Missing required parameter: hero_name";
 
-            int targetRoomIndex = command.GetInt("target_room_index", -1);
-            if (targetRoomIndex < 0)
-                return "Missing or invalid parameter: target_room_index";
-
-            // Find hero
             Hero hero = FindHeroByName(heroName);
             if (hero == null)
                 return "Hero not found: " + heroName;
 
-            // Check hero is usable
+            if (!hero.HasCrystal)
+                return "Hero is not carrying the crystal: " + heroName;
+
             if (!hero.IsUsable)
-                return "Hero is not usable (may be dead, interacting, or respawning): " + heroName;
+                return "Hero is not usable: " + heroName;
 
-            // Find target room by stable OpeningIndex
-            Room targetRoom = dungeonHook.GetRoomByOpeningIndex(targetRoomIndex);
-            if (targetRoom == null)
-                return "Invalid target_room_index: " + targetRoomIndex + " (room not found)";
+            Dungeon dungeon = SingletonManager.Get<Dungeon>(false);
+            if (dungeon == null)
+                return "Dungeon not available";
 
-            return null; // All good
+            Room exitRoom = dungeon.ExitRoom;
+            if (exitRoom == null)
+                return "Exit room not found";
+
+            // Hero must be in the exit room
+            if (hero.RoomElement.ParentRoom != exitRoom)
+                return "Hero is not in the exit room";
+
+            // Exit room must have a free crystal slot
+            CrystalModuleSlot slot = exitRoom.GetFreeCrystalModuleSlot(true);
+            if (slot == null)
+                return "No free crystal slot in exit room";
+
+            return null;
         }
 
         public ActionResult Execute(ActionCommand command)
         {
             string heroName = command.GetString("hero_name");
-            int targetRoomIndex = command.GetInt("target_room_index", -1);
-
             Hero hero = FindHeroByName(heroName);
-            Room targetRoom = dungeonHook.GetRoomByOpeningIndex(targetRoomIndex);
+            Dungeon dungeon = SingletonManager.Get<Dungeon>(false);
+            Room exitRoom = dungeon.ExitRoom;
 
-            // Get current room for metadata
-            Room currentRoom = hero.RoomElement.ParentRoom;
-            int currentRoomIndex = dungeonHook.GetRoomIndex(currentRoom);
-
-            // Move hero to room
-            // MoveToRoom(Room destination, bool immediate, bool cancelOperating, bool cancelInteracting)
-            hero.MoveToRoom(targetRoom, false, true, true);
+            CrystalModuleSlot slot = exitRoom.GetFreeCrystalModuleSlot(true);
+            hero.MoveToCrystalSlot(slot);
 
             var metadata = new Dictionary<string, object>();
             metadata["hero_name"] = heroName;
-            metadata["from_room_index"] = currentRoomIndex;
-            metadata["to_room_index"] = targetRoomIndex;
 
+            Plugin.Log.LogInfo("PlugCrystalExit: Crystal being plugged into exit slot by " + heroName);
             return ActionResult.Ok(metadata);
         }
 

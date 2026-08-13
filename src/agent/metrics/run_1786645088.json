@@ -1,0 +1,46 @@
+{
+  "run_id": "run_1786645088",
+  "start_time": "2026-08-13 11:18:08",
+  "total_floors_survived": 0,
+  "final_outcome": "game_over",
+  "summary": {
+    "total_turns": 13,
+    "total_rooms_explored": 13,
+    "total_mobs_killed": 28,
+    "total_heroes_lost": 0,
+    "total_actions": 215
+  },
+  "floors": [
+    {
+      "floor_number": 1,
+      "turns_survived": 13,
+      "rooms_explored": 13,
+      "doors_opened": 4,
+      "modules_built": 7,
+      "mobs_killed": 28,
+      "heroes_lost": 0,
+      "heroes_recruited": 0,
+      "items_equipped": 3,
+      "items_bought": 3,
+      "dust_collected": 0.0,
+      "peak_industry": 114.0,
+      "peak_food": 50.0,
+      "peak_science": 34.0,
+      "peak_dust": 74.0,
+      "actions_taken": 215,
+      "actions_failed": 49,
+      "action_breakdown": {
+        "OPEN_DOOR": 18,
+        "MOVE_HERO": 136,
+        "POWER_ROOM": 7,
+        "BUILD_MODULE": 7,
+        "BUY_FROM_MERCHANT": 3,
+        "EQUIP_ITEM": 5,
+        "RESEARCH": 5,
+        "PICK_UP_CRYSTAL": 34
+      },
+      "outcome": "game_over",
+      "duration_seconds": 401.52
+    }
+  ]
+}

@@ -129,7 +129,6 @@ class HeuristicAgent(BaseAgent):
         self._repaired_this_turn: set[str] = set()
         self._doors_opened_this_turn: set[tuple[int, int]] = set()
         self._failed_actions: set[str] = set()  # Blacklisted action keys for this turn
-        self._hero_positions: dict[str, int] = {}  # Tracks hero positions from successful moves
         self._moves_issued_this_turn: set[str] = set()  # Hero names that already got a move this turn
         self._built_industry_this_floor = False  # Only build 1 industry gen per floor
         self._last_action_failed = False
@@ -177,15 +176,13 @@ class HeuristicAgent(BaseAgent):
         if action and action.get("command") == "MOVE_HERO":
             hero_name = action["parameters"].get("hero_name")
             target = action["parameters"].get("target_room_index")
-            # Check both the state (may be stale) and our tracked positions
             hero = next((h for h in state.heroes if h.name == hero_name), None)
-            actual_room = self._hero_positions.get(hero_name, hero.room_index if hero else None)
-            if actual_room == target:
-                logger.debug(f"Suppressed no-op move: {hero_name} already in room {target}")
+            if hero and hero.room_index == target:
+                logger.debug(f"Suppressed no-op move: {hero_name} already in room {target} (state_room={hero.room_index})")
                 return None
-            # Only one move per hero per turn (hero is in transit)
-            if hero_name in self._moves_issued_this_turn:
-                logger.debug(f"Suppressed duplicate move: {hero_name} already moving this turn")
+            # Only one move per hero per turn during Strategy (hero is in transit)
+            if state.game_phase.is_planning and hero_name in self._moves_issued_this_turn:
+                logger.debug(f"Suppressed duplicate move: {hero_name} already moving this turn (state_room={hero.room_index if hero else '?'}, target={target})")
                 return None
 
         return action
@@ -233,14 +230,12 @@ class HeuristicAgent(BaseAgent):
                 hero_name = params.get("hero_name")
                 target = params.get("target_room_index")
                 if hero_name is not None and target is not None:
-                    self._hero_positions[hero_name] = target
                     self._moves_issued_this_turn.add(hero_name)
             elif cmd == "OPEN_DOOR":
                 # Hero enters the newly opened room
                 hero_name = params.get("hero_name")
                 target = params.get("target_room_index")
-                if hero_name is not None and target is not None and target >= 0:
-                    self._hero_positions[hero_name] = target
+                # No position tracking needed — mod sends fresh state
             elif cmd == "BUILD_MODULE":
                 # Track industry gen built
                 module_name = params.get("module_name", "")
@@ -984,8 +979,8 @@ class HeuristicAgent(BaseAgent):
         if not other_heroes:
             return None
 
-        # Use tracked position if available (handles stale state)
-        gork_room = self._hero_positions.get(gork.name, gork.room_index)
+        # Use actual state position
+        gork_room = gork.room_index
         if gork_room == 1:
             return None  # Already there
 
@@ -1523,19 +1518,14 @@ class HeuristicAgent(BaseAgent):
 
     def _handle_defend(self, state: GameStatePayload) -> Optional[dict]:
         """
-        DEFEND: Position non-operator heroes in bottleneck rooms during waves.
+        DEFEND: During Action phase, send all heroes to room 1 (fortified position).
 
-        Logic:
-          - Identify rooms where mobs are present or approaching
-          - Position heroes in bottleneck rooms to block enemy paths
-          - Don't move operators (GL-3)
-          - Don't move crystal carrier
-          - Heroes auto-target closest enemy (no focus-fire commands needed)
-          - Prioritize crystal/artifact defense when targeted (Tasks 4.26, 4.27)
-          - Avoid hazardous rooms (toxic clouds, EMP) (Tasks 4.29, 4.30)
+        Room 1 has prisoner prods — heroes should fight there.
+        Heroes auto-attack mobs in their room, so just positioning is needed.
+        Does NOT check _moves_issued_this_turn — heroes need to keep moving
+        toward room 1 even across multiple hops during a long Action phase.
         """
-        if self._graph is None:
-            return None
+        rally_room = 1
 
         # Get defensive heroes (non-operating, non-carrying-crystal)
         defenders = [
@@ -1546,71 +1536,18 @@ class HeuristicAgent(BaseAgent):
         if not defenders:
             return None
 
-        # Identify high-priority defense rooms
-        defense_targets = set()
-
-        # Task 4.27: Crystal under threat — prioritize crystal room
-        if self._crystal_under_threat(state):
-            crystal_targets = self._get_crystal_defense_targets(state)
-            defense_targets.update(crystal_targets)
-
-        # Task 4.26: Artifact under threat — prioritize artifact rooms
-        if self._artifact_under_threat(state):
-            artifact_targets = self._get_artifact_defense_targets(state)
-            defense_targets.update(artifact_targets)
-
-        # Standard: rooms with mobs + adjacent rooms
-        mob_rooms = rooms_with_mobs(self._graph)
-        if mob_rooms:
-            defense_targets.update(mob_rooms)
-            for room_idx in mob_rooms:
-                for neighbor in self._graph.neighbors(room_idx):
-                    edge_data = self._graph.edges[room_idx, neighbor]
-                    if edge_data.get("is_open", False):
-                        node_data = self._graph.nodes.get(neighbor, {})
-                        if node_data.get("is_powered", False):
-                            defense_targets.add(neighbor)
-
-        # Always include crystal room
-        crystal_room = state.start_room_index
-        defense_targets.add(crystal_room)
-
-        if not defense_targets:
-            return None
-
-        # Task 4.29/4.30: Remove hazardous rooms from targets
-        safe_targets = {
-            r for r in defense_targets
-            if not self._is_room_hazardous(state, r)
-        }
-        # Fall back to all targets if all are hazardous
-        if not safe_targets:
-            safe_targets = defense_targets
-
-        # Position defenders toward threat
         for hero in defenders:
-            if hero.room_index in safe_targets:
-                continue  # Already in a good position
+            hero_room = hero.room_index  # Use actual state position (fresh from mod)
+            if hero_room == rally_room:
+                continue  # Already in position
 
-            # Find closest safe defense target
-            best_target = None
-            best_dist = float("inf")
-            for target in safe_targets:
-                path = self._path_through_open_doors(hero.room_index, target)
-                if path:
-                    dist = len(path) - 1
-                    if dist < best_dist:
-                        best_dist = dist
-                        best_target = target
-
-            if best_target is not None and best_dist > 0:
-                path = self._path_through_open_doors(hero.room_index, best_target)
-                if path and len(path) >= 2:
-                    return _action(
-                        "MOVE_HERO",
-                        hero_name=hero.name,
-                        target_room_index=path[1],
-                    )
+            path = self._path_through_open_doors(hero_room, rally_room)
+            if path and len(path) >= 2:
+                return _action(
+                    "MOVE_HERO",
+                    hero_name=hero.name,
+                    target_room_index=path[1],
+                )
 
         return None
 
@@ -1641,7 +1578,7 @@ class HeuristicAgent(BaseAgent):
                 continue
             if hero.max_hp <= 0:
                 continue
-            hero_room = self._hero_room(hero)
+            hero_room = hero.room_index  # Use actual state position
             hp_ratio = hero.hp / hero.max_hp
             if hp_ratio < threshold and hero_room != rally_room:
                 # Move toward rally room
@@ -1712,8 +1649,8 @@ class HeuristicAgent(BaseAgent):
 
         # --- Step 3: Send Gork to exit room ---
         if gork and gork.room_index != exit_room:
-            gork_room = self._hero_room(gork)
-            if gork_room != exit_room and gork.name not in self._moves_issued_this_turn:
+            gork_room = gork.room_index
+            if gork_room != exit_room:
                 path = self._path_through_open_doors(gork_room, exit_room)
                 if path and len(path) >= 2:
                     return _action(
@@ -1726,15 +1663,14 @@ class HeuristicAgent(BaseAgent):
         if not max_hero.has_crystal:
             max_room = max_hero.room_index
             if max_room != crystal_room:
-                if max_hero.name not in self._moves_issued_this_turn:
-                    path = self._path_through_open_doors(max_room, crystal_room)
-                    if path and len(path) >= 2:
-                        return _action(
-                            "MOVE_HERO",
-                            hero_name=max_hero.name,
-                            target_room_index=path[1],
-                        )
-                return None  # Wait for Max to arrive
+                path = self._path_through_open_doors(max_room, crystal_room)
+                if path and len(path) >= 2:
+                    return _action(
+                        "MOVE_HERO",
+                        hero_name=max_hero.name,
+                        target_room_index=path[1],
+                    )
+                return None  # No path — wait
             else:
                 # --- Step 5: Pick up crystal ---
                 return _action("PICK_UP_CRYSTAL", hero_name=max_hero.name)
@@ -1743,18 +1679,17 @@ class HeuristicAgent(BaseAgent):
         if max_hero.has_crystal:
             max_room = max_hero.room_index
             if max_room != exit_room:
-                if max_hero.name not in self._moves_issued_this_turn:
-                    path = self._path_through_open_doors(max_room, exit_room)
-                    if path and len(path) >= 2:
-                        return _action(
-                            "MOVE_HERO",
-                            hero_name=max_hero.name,
-                            target_room_index=path[1],
-                        )
-                return None  # Wait for Max to arrive
+                path = self._path_through_open_doors(max_room, exit_room)
+                if path and len(path) >= 2:
+                    return _action(
+                        "MOVE_HERO",
+                        hero_name=max_hero.name,
+                        target_room_index=path[1],
+                    )
+                return None  # No path — wait
             else:
-                # Max is at exit with crystal — send EXIT_FLOOR command
-                return _action("EXIT_FLOOR")
+                # Max is at exit with crystal — plug it into the exit slot
+                return _action("PLUG_CRYSTAL_EXIT", hero_name=max_hero.name)
 
         return None
 
@@ -1982,8 +1917,8 @@ class HeuristicAgent(BaseAgent):
         return heroes
 
     def _hero_room(self, hero: HeroState) -> int:
-        """Get the hero's effective room (tracked position or state position)."""
-        return self._hero_positions.get(hero.name, hero.room_index)
+        """Get the hero's room from state."""
+        return hero.room_index
 
     def _closest_hero_to_room(
         self, heroes: list[HeroState], target_room: int
@@ -2062,7 +1997,6 @@ class HeuristicAgent(BaseAgent):
         self._repaired_this_turn.clear()
         self._doors_opened_this_turn.clear()
         self._failed_actions.clear()
-        self._hero_positions.clear()
         self._moves_issued_this_turn.clear()
         self._last_action_failed = False
 

@@ -48,16 +48,11 @@ namespace DotEAgent.Actions
                 return "Hero is not usable: " + heroName;
 
             // Validate room
-            Dungeon dungeon = SingletonManager.Get<Dungeon>(false);
-            if (dungeon == null || dungeon.OpenedRooms == null)
-                return "Dungeon not available";
-
-            List<Room> rooms = dungeon.OpenedRooms;
-            if (merchantRoomIndex >= rooms.Count)
-                return "Invalid merchant_room_index: " + merchantRoomIndex;
+            Room merchantRoom = dungeonHook.GetRoomByOpeningIndex(merchantRoomIndex);
+            if (merchantRoom == null)
+                return "Invalid merchant_room_index: " + merchantRoomIndex + " (room not found)";
 
             // Validate hero is in merchant's room
-            Room merchantRoom = rooms[merchantRoomIndex];
             Room heroRoom = hero.RoomElement.ParentRoom;
             if (heroRoom != merchantRoom)
             {
@@ -84,8 +79,7 @@ namespace DotEAgent.Actions
             int merchantRoomIndex = command.GetInt("merchant_room_index", -1);
             string itemName = command.GetString("item_name");
 
-            Dungeon dungeon = SingletonManager.Get<Dungeon>(false);
-            Room merchantRoom = dungeon.OpenedRooms[merchantRoomIndex];
+            Room merchantRoom = dungeonHook.GetRoomByOpeningIndex(merchantRoomIndex);
 
             NPCMerchant merchant = FindMerchantInRoom(merchantRoom);
             InventoryItem item = FindItemByName(merchant, itemName);

@@ -615,7 +615,7 @@ class TestEMPAwareness:
         assert action is None
 
     def test_defend_avoids_emp_rooms(self):
-        """DEFEND handler avoids positioning heroes in EMP rooms."""
+        """DEFEND handler sends heroes to room 1 (rally point) during combat."""
         agent = HeuristicAgent()
         s = _base_state(phase="Action")
         s["rooms"][1]["suffers_emp"] = True
@@ -628,11 +628,9 @@ class TestEMPAwareness:
 
         action = agent.select_action(state)
 
-        # Agent should still defend but prefer non-EMP rooms if available
-        # Room 1 has EMP but also mobs — other targets (crystal room, neighbors) are safe
+        # DEFEND sends everyone to room 1 (fortified position)
         if action and action["command"] == "MOVE_HERO":
-            # Hero should move to room 0 (crystal room, safe) rather than room 1 (EMP)
-            assert action["parameters"]["target_room_index"] in (0, 2, 3)
+            assert action["parameters"]["target_room_index"] == 1
 
     def test_is_room_hazardous_nonexistent_room(self):
         """Non-existent room returns not hazardous."""

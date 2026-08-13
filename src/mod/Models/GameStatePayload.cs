@@ -22,7 +22,7 @@ namespace DotEAgent.Models
         public List<DroppedItemData> DroppedItems;
         public List<BackpackItemData> BackpackItems;      // Kept between floors (4 slots)
         public List<BackpackItemData> SharedInventoryItems; // Lost at end of floor
-        public List<string> ResearchableBlueprints;        // Currently available research options
+        public List<ResearchBlueprintData> ResearchableBlueprints; // Currently available research options
         public int ExitRoomIndex;
         public int StartRoomIndex;
     }

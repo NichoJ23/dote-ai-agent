@@ -159,15 +159,22 @@ class GameLauncher:
         heroes: Optional[list[str]] = None,
         ship: Optional[str] = None,
         difficulty: str = "easy",
+        retries: int = 10,
+        retry_delay: float = 3.0,
     ) -> dict:
         """
         Start a new game with the specified configuration.
+
+        Retries on failure since GameControlService may not be ready yet
+        during early startup.
 
         Args:
             heroes: List of hero config names (e.g., ["Hero_H0001", "Hero_H0005"]).
                     If None, the game picks random heroes.
             ship: Ship config name. If None, uses the first available ship.
             difficulty: One of "easy", "normal", "hard", "very_hard".
+            retries: Number of retry attempts.
+            retry_delay: Seconds to wait between retries.
 
         Returns:
             Action result dict from the mod.
@@ -184,31 +191,50 @@ class GameLauncher:
         if ship:
             params["ship_name"] = ship
 
-        result = self._ipc.send_action("START_NEW_GAME", params)
+        last_error = ""
+        for attempt in range(retries):
+            result = self._ipc.send_action("START_NEW_GAME", params)
 
-        if not result.get("success", False):
-            raise RuntimeError(f"START_NEW_GAME failed: {result.get('error', 'unknown')}")
+            if result.get("success", False):
+                return result
 
-        return result
+            last_error = result.get("error", "unknown")
+            if attempt < retries - 1:
+                print(f"GameLauncher: START_NEW_GAME not ready ({last_error}), "
+                      f"retrying in {retry_delay}s... ({attempt + 1}/{retries})")
+                time.sleep(retry_delay)
 
-    def continue_game(self) -> dict:
+        raise RuntimeError(f"START_NEW_GAME failed after {retries} attempts: {last_error}")
+
+    def continue_game(self, retries: int = 10, retry_delay: float = 3.0) -> dict:
         """
         Continue from the best available save.
+
+        Retries on failure since game services may not be ready during startup.
 
         Returns:
             Action result dict from the mod.
 
         Raises:
             ConnectionError: If not connected.
-            RuntimeError: If no save exists or the command fails.
+            RuntimeError: If no save exists or the command fails after retries.
         """
         self._ensure_connected()
-        result = self._ipc.send_action("CONTINUE_GAME", {})
 
-        if not result.get("success", False):
-            raise RuntimeError(f"CONTINUE_GAME failed: {result.get('error', 'unknown')}")
+        last_error = ""
+        for attempt in range(retries):
+            result = self._ipc.send_action("CONTINUE_GAME", {})
 
-        return result
+            if result.get("success", False):
+                return result
+
+            last_error = result.get("error", "unknown")
+            if attempt < retries - 1:
+                print(f"GameLauncher: CONTINUE_GAME not ready ({last_error}), "
+                      f"retrying in {retry_delay}s... ({attempt + 1}/{retries})")
+                time.sleep(retry_delay)
+
+        raise RuntimeError(f"CONTINUE_GAME failed after {retries} attempts: {last_error}")
 
     def wait_for_dungeon(self, timeout: float = 60.0) -> dict:
         """

@@ -10,7 +10,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # --- Enums ---
@@ -142,6 +142,7 @@ class RecruitableHero(BaseModel):
     room_index: int = 0
     hp: float = 0.0
     max_hp: float = 1.0
+    recruit_cost_food: float = 0.0
     passive_skill_names: list[str] = Field(default_factory=list)
 
 
@@ -156,6 +157,11 @@ class BackpackItem(BaseModel):
     name: str
     rarity: str = ""
     category: str = ""  # Slot category this item fits
+
+
+class ResearchBlueprint(BaseModel):
+    name: str
+    science_cost: float = 0.0
 
 
 # --- Top-level payload ---
@@ -182,7 +188,21 @@ class GameStatePayload(BaseModel):
     dropped_items: list[DroppedItem] = Field(default_factory=list)
     backpack_items: list[BackpackItem] = Field(default_factory=list)
     shared_inventory_items: list[BackpackItem] = Field(default_factory=list)
-    researchable_blueprints: list[str] = Field(default_factory=list)
+    researchable_blueprints: list[ResearchBlueprint] = Field(default_factory=list)
+
+    @field_validator("researchable_blueprints", mode="before")
+    @classmethod
+    def _coerce_blueprints(cls, v):
+        """Accept both plain strings and {name, science_cost} dicts."""
+        if not isinstance(v, list):
+            return v
+        result = []
+        for item in v:
+            if isinstance(item, str):
+                result.append({"name": item, "science_cost": 0.0})
+            else:
+                result.append(item)
+        return result
 
     # --- Convenience properties ---
 

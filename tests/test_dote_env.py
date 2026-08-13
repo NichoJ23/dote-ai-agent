@@ -239,7 +239,8 @@ class TestReward:
         prev_state = StateParser().parse(prev)
         curr_state = StateParser().parse(curr)
         reward = mock_env._compute_reward(prev_state, curr_state)
-        assert reward <= -5.0 + 0.01  # -0.1 * 50
+        # 50 HP lost / 250 max = 20% lost, penalty = -0.05 * 20 = -1.0
+        assert reward <= -1.0 + 0.01
 
     def test_crystal_destroyed_penalty(self, mock_env):
         prev = _make_state_dict(turn=1)

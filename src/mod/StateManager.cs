@@ -159,7 +159,7 @@ namespace DotEAgent
 
         private void ExtractResearchableBlueprints(GameStatePayload payload)
         {
-            payload.ResearchableBlueprints = new List<string>();
+            payload.ResearchableBlueprints = new List<ResearchBlueprintData>();
 
             Dungeon dungeon = SingletonManager.Get<Dungeon>(false);
             if (dungeon == null)
@@ -172,7 +172,12 @@ namespace DotEAgent
             for (int i = 0; i < bps.Length; i++)
             {
                 if (bps[i] != null)
-                    payload.ResearchableBlueprints.Add(bps[i].Name.ToString());
+                {
+                    var data = new ResearchBlueprintData();
+                    data.Name = bps[i].Name.ToString();
+                    data.ScienceCost = bps[i].ResearchScienceCost;
+                    payload.ResearchableBlueprints.Add(data);
+                }
             }
         }
     }

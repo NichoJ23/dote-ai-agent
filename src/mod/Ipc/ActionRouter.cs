@@ -20,6 +20,9 @@ namespace DotEAgent.Ipc
         /// <summary>True if an action was received and processed this frame.</summary>
         public bool LastActionReceivedThisFrame { get; private set; }
 
+        /// <summary>True if the last action processed this frame succeeded.</summary>
+        public bool LastActionSucceeded { get; private set; }
+
         public ActionRouter(IpcBridge bridge)
         {
             this.bridge = bridge;
@@ -40,6 +43,7 @@ namespace DotEAgent.Ipc
         public void ProcessActions()
         {
             LastActionReceivedThisFrame = false;
+            LastActionSucceeded = false;
 
             if (!bridge.IsActionConnected)
                 return;
@@ -94,6 +98,7 @@ namespace DotEAgent.Ipc
             }
 
             Log.LogInfo("ActionRouter: " + command.Command + " result: " + (result.Success ? "OK" : "FAIL - " + result.Error));
+            LastActionSucceeded = result.Success;
             SendResult(result);
         }
 

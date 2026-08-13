@@ -190,7 +190,11 @@ def _full_state_dict():
             {"name": "Rusty Sword", "rarity": "Common", "category": "Weapon"},
             {"name": "Leather Vest", "rarity": "Common", "category": "Armor"},
         ],
-        "researchable_blueprints": ["LaserTurret", "ShieldModule", "FoodGen_Mk2"],
+        "researchable_blueprints": [
+            {"name": "LaserTurret", "science_cost": 20.0},
+            {"name": "ShieldModule", "science_cost": 15.0},
+            {"name": "FoodGen_Mk2", "science_cost": 30.0},
+        ],
     }
 
 
@@ -458,7 +462,9 @@ class TestInventory:
 
     def test_researchable_blueprints(self, full_state):
         assert len(full_state.researchable_blueprints) == 3
-        assert "LaserTurret" in full_state.researchable_blueprints
+        bp_names = [bp.name for bp in full_state.researchable_blueprints]
+        assert "LaserTurret" in bp_names
+        assert full_state.researchable_blueprints[0].science_cost == 20.0
 
 
 class TestValidation:

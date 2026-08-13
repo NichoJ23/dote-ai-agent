@@ -268,7 +268,7 @@ class DotEEnv(gym.Env):
 
         Reward = +10 * (delta rooms explored)
                +  5 * (delta dust gained)
-               -  0.1 * (delta hero HP lost across all heroes)
+               -  0.05 * (percentage HP lost per hero, summed)
                -100 * (crystal destroyed)
                +  2 * (delta modules built)
                +  1 * (delta mobs killed)
@@ -290,16 +290,21 @@ class DotEEnv(gym.Env):
         if dust_delta > 0:
             reward += 5.0 * dust_delta
 
-        # Delta hero HP lost (summed across all heroes)
-        prev_hp_map = {h.name: h.hp for h in prev.heroes}
-        curr_hp_map = {h.name: h.hp for h in curr.heroes}
-        total_hp_lost = 0.0
-        for hero_name, prev_hp in prev_hp_map.items():
-            curr_hp = curr_hp_map.get(hero_name, 0.0)
+        # Delta hero HP lost as percentage of max HP (-0.5 per 1% lost)
+        prev_hp_map = {h.name: (h.hp, h.max_hp) for h in prev.heroes}
+        curr_hp_map = {h.name: (h.hp, h.max_hp) for h in curr.heroes}
+        total_pct_lost = 0.0
+        for hero_name, (prev_hp, prev_max) in prev_hp_map.items():
+            if prev_max <= 0:
+                continue
+            curr_hp, curr_max = curr_hp_map.get(hero_name, (0.0, prev_max))
+            # Use current max_hp as the reference (accounts for level-ups)
+            ref_max = curr_max if curr_max > 0 else prev_max
             hp_diff = prev_hp - curr_hp
             if hp_diff > 0:
-                total_hp_lost += hp_diff
-        reward -= 0.1 * total_hp_lost
+                pct_lost = (hp_diff / ref_max) * 100.0  # as percentage points
+                total_pct_lost += pct_lost
+        reward -= 0.05 * total_pct_lost
 
         # Crystal destroyed
         if curr.is_game_over and not prev.is_game_over:
@@ -536,7 +541,7 @@ class DotEEnv(gym.Env):
         elif command == "RESEARCH":
             blueprint = ""
             if self._current_state and entity_hash < len(self._current_state.researchable_blueprints):
-                blueprint = self._current_state.researchable_blueprints[entity_hash]
+                blueprint = self._current_state.researchable_blueprints[entity_hash].name
             params = {"blueprint_name": blueprint}
 
         elif command in ("PAUSE_GAME", "UNPAUSE_GAME"):

@@ -74,6 +74,16 @@ namespace DotEAgent.Hooks
                         data.MaxHp = hero.HealthCpnt.GetMaxHealth();
                     }
 
+                    // Recruit cost
+                    try
+                    {
+                        data.RecruitCostFood = hero.GetHiringFoodCost();
+                    }
+                    catch (System.Exception)
+                    {
+                        data.RecruitCostFood = 0f;
+                    }
+
                     // Passive skills
                     data.PassiveSkillNames = new List<string>();
                     if (hero.FilteredPassiveSkills != null)

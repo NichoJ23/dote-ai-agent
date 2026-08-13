@@ -9,6 +9,7 @@ namespace DotEAgent.Models
         public int RoomIndex;
         public float Hp;
         public float MaxHp;
+        public float RecruitCostFood;
         public List<string> PassiveSkillNames;
     }
 }

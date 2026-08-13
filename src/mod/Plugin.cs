@@ -28,7 +28,7 @@ namespace DotEAgent
         private string lastSentPhase = "";
         private bool wasStateConnected = false;
         private float lastStateSentTime = 0f;
-        private float actionTimeoutSeconds = 5f;
+        private float actionTimeoutSeconds = 30f;
         private bool pausedForTimeout = false;
 
         private void Awake()
@@ -92,13 +92,17 @@ namespace DotEAgent
                 LogFullState(state);
             }
 
-            // Push state to Python agent when turn or phase changes, or on new connection
+            // Push state to Python agent when turn or phase changes, on new connection,
+            // or periodically (every 1s) so agent can track hero movement
             if (ipcBridge.IsStateConnected)
             {
                 bool newConnection = !wasStateConnected;
                 wasStateConnected = true;
 
-                if (newConnection || state.Turn != lastSentTurn || state.GamePhase != lastSentPhase)
+                float timeSinceLastPush = Time.unscaledTime - lastStateSentTime;
+                bool periodicPush = timeSinceLastPush >= 1.0f;
+
+                if (newConnection || state.Turn != lastSentTurn || state.GamePhase != lastSentPhase || periodicPush)
                 {
                     string json = JsonSerializer.Serialize(state);
                     ipcBridge.SendState(json);
@@ -144,6 +148,20 @@ namespace DotEAgent
             if (actionRouter.LastActionReceivedThisFrame)
             {
                 lastStateSentTime = Time.unscaledTime;
+            }
+
+            // Push fresh state after every successful action so agent always has ground truth
+            if (actionRouter.LastActionSucceeded && ipcBridge.IsStateConnected)
+            {
+                GameStatePayload freshState = stateManager.ExtractFullState();
+                if (freshState != null)
+                {
+                    string json = JsonSerializer.Serialize(freshState);
+                    ipcBridge.SendState(json);
+                    lastSentTurn = freshState.Turn;
+                    lastSentPhase = freshState.GamePhase;
+                    lastStateSentTime = Time.unscaledTime;
+                }
             }
 
             // Track mob changes mid-turn (they spawn after turn increments)

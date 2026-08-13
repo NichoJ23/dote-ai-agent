@@ -53,7 +53,15 @@ namespace DotEAgent.Actions
             metadata["in_dungeon"] = inDungeon;
 
             // Check for saved games
-            bool hasSave = GameSave.HasSinglePlayerSaveFile();
+            bool hasSave = false;
+            try
+            {
+                hasSave = GameSave.HasSinglePlayerSaveFile();
+            }
+            catch (System.Exception ex)
+            {
+                Plugin.Log.LogWarning("MenuAction: Failed to check save files: " + ex.Message);
+            }
             metadata["has_save"] = hasSave;
 
             // Get available heroes
@@ -200,7 +208,17 @@ namespace DotEAgent.Actions
 
         private ActionResult ExecuteContinueGame(ActionCommand command)
         {
-            if (!GameSave.HasSinglePlayerSaveFile())
+            bool hasSave = false;
+            try
+            {
+                hasSave = GameSave.HasSinglePlayerSaveFile();
+            }
+            catch (System.Exception ex)
+            {
+                return ActionResult.Fail("Cannot check save file: " + ex.Message);
+            }
+
+            if (!hasSave)
             {
                 return ActionResult.Fail("No save file found");
             }

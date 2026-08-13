@@ -65,7 +65,7 @@ namespace DotEAgent.Ipc
 
             // Researchable blueprints
             sb.Append(",\"researchable_blueprints\":");
-            SerializeStringList(sb, state.ResearchableBlueprints);
+            SerializeResearchBlueprintList(sb, state.ResearchableBlueprints);
 
             sb.Append("}");
             return sb.ToString();
@@ -367,6 +367,7 @@ namespace DotEAgent.Ipc
                 AppendInt(sb, "room_index", r.RoomIndex, false);
                 AppendFloat(sb, "hp", r.Hp, false);
                 AppendFloat(sb, "max_hp", r.MaxHp, false);
+                AppendFloat(sb, "recruit_cost_food", r.RecruitCostFood, false);
 
                 sb.Append(",\"passive_skill_names\":");
                 SerializeStringList(sb, r.PassiveSkillNames);
@@ -453,6 +454,26 @@ namespace DotEAgent.Ipc
             {
                 if (i > 0) sb.Append(",");
                 AppendJsonString(sb, list[i]);
+            }
+            sb.Append("]");
+        }
+
+        private static void SerializeResearchBlueprintList(StringBuilder sb, List<ResearchBlueprintData> list)
+        {
+            if (list == null)
+            {
+                sb.Append("[]");
+                return;
+            }
+            sb.Append("[");
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (i > 0) sb.Append(",");
+                sb.Append("{\"name\":");
+                AppendJsonString(sb, list[i].Name);
+                sb.Append(",\"science_cost\":");
+                sb.Append(list[i].ScienceCost.ToString("G"));
+                sb.Append("}");
             }
             sb.Append("]");
         }

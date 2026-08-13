@@ -1746,10 +1746,8 @@ class HeuristicAgent(BaseAgent):
                         )
                 return None  # Wait for Max to arrive
             else:
-                # Max is at exit with crystal — floor should auto-exit
-                # The game triggers LevelOver when crystal reaches exit slot
-                # Just wait for the state to update
-                return None
+                # Max is at exit with crystal — send EXIT_FLOOR command
+                return _action("EXIT_FLOOR")
 
         return None
 

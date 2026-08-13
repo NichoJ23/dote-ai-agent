@@ -57,6 +57,9 @@ namespace DotEAgent
             actionRouter.RegisterHandler(new HealHeroHandler(stateManager.GetDungeonHook()));
             actionRouter.RegisterHandler(new ResearchHandler(stateManager.GetDungeonHook()));
 
+            // Floor exit handler
+            actionRouter.RegisterHandler(new ExitFloorHandler(stateManager.GetDungeonHook()));
+
             // Menu/lifecycle handlers (work before dungeon loads)
             actionRouter.RegisterHandler(new MenuActionHandler("QUERY_MENU_STATE"));
             actionRouter.RegisterHandler(new MenuActionHandler("START_NEW_GAME"));

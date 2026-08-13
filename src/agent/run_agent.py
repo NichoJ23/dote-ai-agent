@@ -314,6 +314,10 @@ class AgentRunner:
                     current_state = self._wait_for_hero_arrival(
                         hero_name, target_room, current_state, floor_metrics
                     )
+                    # After arrival, wait for item pickup if items are in that room
+                    current_state = self._wait_for_item_pickup(
+                        target_room, current_state, floor_metrics
+                    )
                     if current_state.turn != last_turn:
                         last_turn = current_state.turn
                         actions_this_turn = 0
@@ -377,6 +381,52 @@ class AgentRunner:
                 continue
 
         logger.debug(f"Timed out waiting for {hero_name} to reach room {target_room}")
+        return current_state
+
+    def _wait_for_item_pickup(
+        self,
+        target_room: int,
+        current_state: GameStatePayload,
+        floor_metrics,
+        timeout: float = 5.0,
+    ) -> GameStatePayload:
+        """
+        Wait until dropped items in a room are picked up by the hero.
+
+        Heroes auto-collect items after arriving, but it takes a moment.
+        Poll until dropped_items no longer lists items in that room.
+
+        Args:
+            target_room: The room where items should be collected.
+            current_state: Current game state.
+            floor_metrics: Floor metrics to update.
+            timeout: Max seconds to wait.
+
+        Returns:
+            The latest game state.
+        """
+        import time as _time
+
+        # Check if there are items in this room to begin with
+        items_in_room = [i for i in current_state.dropped_items if i.room_index == target_room]
+        if not items_in_room:
+            return current_state
+
+        start = _time.time()
+        while _time.time() - start < timeout:
+            try:
+                next_state_dict = self._ipc.receive_state(timeout=1.5)
+                current_state = self._parser.parse(next_state_dict)
+                floor_metrics.update_from_state(current_state)
+
+                items_remaining = [i for i in current_state.dropped_items if i.room_index == target_room]
+                if len(items_remaining) < len(items_in_room):
+                    logger.debug(f"Items picked up in room {target_room}")
+                    return current_state
+            except TimeoutError:
+                continue
+
+        logger.debug(f"Timed out waiting for item pickup in room {target_room}")
         return current_state
 
     def _setup_signal_handlers(self) -> None:
@@ -470,8 +520,8 @@ def main():
     console_handler.setFormatter(logging.Formatter(log_format, datefmt=log_datefmt))
     root_logger.addHandler(console_handler)
 
-    # File handler — always writes to logs/agent_run.log
-    log_dir = Path(args.metrics_dir).parent / "logs"
+    # File handler — writes full debug log next to the script
+    log_dir = Path(__file__).parent / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "agent_run.log"
     file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")

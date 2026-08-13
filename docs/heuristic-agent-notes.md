@@ -134,17 +134,36 @@ After escaping, the game shows a lift/dialogue sequence. `NEXT_FLOOR` command sk
 - **RL implication**: Floor transitions are a separate "meta-action" outside the normal step loop.
 
 ## Uncommitted Changes
-All work is on the `heuristic-agent` branch. There are uncommitted changes from this session that should be committed:
-- Fixed `GetRoomByOpeningIndex` to accept index 0 (crystal room)
-- `PLUG_CRYSTAL_EXIT` handler
-- `NEXT_FLOOR` handler  
-- Escape sequence rewrite (depower first, no _moves_issued checks)
-- Item pickup uses fixed wait scaled by time_scale
-- `is_game_over` fixed (checks hero carrying crystal)
-- DEFEND simplified (all heroes to room 1)
-- Retreat threshold 50%
-- `_hero_positions` removed (rely on mod state)
-- Duplicate move guard only during Strategy phase
-- File logging at `src/agent/logs/agent_run.log`
-- `time_scale` field in state payload
-- `Time.timeScale = 2f` in Plugin.Awake
+None — all work pushed to `heuristic-agent` branch on GitHub (NichoJ23/dote-ai-agent).
+
+## Recent Session Changes (hero busy-flag system + game speed)
+
+### Hero Busy-Flag System
+Replaced the old blocking wait pattern (`_wait_for_hero_arrival`, `_wait_for_item_pickup`) with a non-blocking busy-flag system that allows concurrent hero actions:
+
+- `_hero_busy` dict maps hero_name → `{"action": "move"|"repair"|"awaiting_pickup", "target_room": int}`
+- Heroes marked busy are excluded from `_get_available_heroes()` — the other hero gets tasks
+- `_update_busy_flags(state)` clears flags when heroes arrive at target room
+- When arriving at a room with items, transitions to `awaiting_pickup` — clears only when items gone AND `is_gathering_item=false`
+- Multi-hop moves: busy flag target set to final destination, `_continue_multi_hop_moves()` issues next hops automatically
+- WAIT sentinel returned when coordinated actions (open door, pick up crystal) need all heroes ready
+- All busy flags cleared when combat starts (heroes move freely during Action phase)
+
+### Item Pickup Fix
+- Root cause: game uses `base.Invoke("AcquireItem", itemGatheringDuration)` — delayed acquisition. Moving hero during this window calls `CancelItemGathering()`.
+- Fix: exposed `hero.gatheringItem != null` as `is_gathering_item` in state (via reflection). Agent won't clear `awaiting_pickup` until both items are gone AND `is_gathering_item=false`.
+
+### Game Speed (Time.timeScale)
+- `Time.timeScale = 2f` enforced every frame in `Update()` (game resets it on unpause/transitions)
+- State push interval: `1.0/timeScale` during Strategy, `0.5/timeScale` during Action
+- Drain loop capped at 2s wall-clock to prevent blocking at high push rates
+
+### Escape Sequence
+- Escape initiation moved to step 9.5 in decision tree (after item collection, merchant, positioning)
+- Won't initiate escape while any hero is busy
+- Floor transition: waits for `floor > current_floor` in state (not just rooms > 0)
+- `DungeonHook.ExtractState()` re-fetches dungeon singleton each call for floor transitions
+
+### Combat Healing
+- `_try_heal_in_combat()` heals most wounded hero (below 30% HP) using up to half available food
+- Runs at top of both `_handle_defend` and `_handle_retreat`

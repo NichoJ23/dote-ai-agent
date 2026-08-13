@@ -109,6 +109,7 @@ class HeroState(BaseModel):
     has_crystal: bool = False
     is_operating: bool = False
     operating_module_name: Optional[str] = None
+    is_gathering_item: bool = False  # Hero is mid-pickup animation; moving cancels it
     is_recruitable: bool = False
     is_recruited: bool = True
     active_skills: list[ActiveSkill] = Field(default_factory=list)

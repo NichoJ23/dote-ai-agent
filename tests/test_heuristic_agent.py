@@ -783,7 +783,12 @@ class TestMultiStepSequences:
     """Test agent behavior over multiple consecutive state observations."""
 
     def test_full_explore_to_build_sequence(self):
-        """Agent uses decision tree: opens doors, then escapes when done."""
+        """Agent uses decision tree: opens doors, then escapes when done.
+        
+        With the escape check moved into the decision tree (step 9.5),
+        the agent completes housekeeping (power rooms, etc.) before initiating
+        escape. The phase switches to ESCAPE once step 9.5 fires.
+        """
         agent = HeuristicAgent()
 
         # Turn 1: closed door exists => decision tree handles it
@@ -793,14 +798,31 @@ class TestMultiStepSequences:
         assert agent.current_phase == AgentPhase.BUILD
         assert action1 is not None
 
-        # Turn 2: all doors open, exit found => ESCAPE
+        # Turn 2: all doors open, exit found => escape conditions met
+        # Agent may do housekeeping first (power rooms, build, etc.)
+        # but will eventually reach ESCAPE
         agent.new_turn()
         s2 = _base_state(turn=2)
         s2["closed_doors"] = []
         for room in s2["rooms"]:
             room["is_fully_opened"] = True
+        # Put Gork in room 1 so step 9 (position Gork) doesn't keep firing
+        s2["heroes"][1]["room_index"] = 1
         state2 = _parse(s2)
         action2 = agent.select_action(state2)
+        # Keep calling until escape initiates (earlier steps may fire first)
+        # Clear busy flags between calls to simulate heroes completing tasks
+        attempts = 0
+        while agent.current_phase != AgentPhase.ESCAPE and attempts < 20:
+            agent.on_action_result(
+                {"command": action2["command"], "parameters": action2.get("parameters", {})},
+                {"success": True},
+            )
+            agent._hero_busy.clear()  # Simulate heroes finishing their tasks
+            action2 = agent.select_action(state2)
+            attempts += 1
+            if action2 is None:
+                break
         assert agent.current_phase == AgentPhase.ESCAPE
 
     def test_combat_defend_retreat_cycle(self):

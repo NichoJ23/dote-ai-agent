@@ -156,9 +156,11 @@ class AgentRunner:
                             break
 
                         # Wait for next floor dungeon to load
+                        # Must detect floor number change to avoid stale states from previous floor
+                        current_floor = current_state.floor
                         try:
                             next_state_dict = self._ipc.wait_for_state(
-                                condition=lambda s: len(s.get("rooms", [])) > 0,
+                                condition=lambda s: s.get("floor", 0) > current_floor,
                                 timeout=60,
                             )
                             current_state = self._parser.parse(next_state_dict)
@@ -209,9 +211,12 @@ class AgentRunner:
         actions_this_turn = 0
 
         # Drain any pending state updates (e.g., turn 0 -> turn 1 transition
-        # that arrived while we were initializing)
+        # that arrived while we were initializing). Cap at 2s wall-clock to avoid
+        # getting stuck when state pushes are very frequent (high timeScale).
+        import time as _drain_time
+        drain_start = _drain_time.time()
         try:
-            while True:
+            while _drain_time.time() - drain_start < 2.0:
                 next_state_dict = self._ipc.receive_state(timeout=0.5)
                 current_state = self._parser.parse(next_state_dict)
                 floor_metrics.update_from_state(current_state)
@@ -252,6 +257,23 @@ class AgentRunner:
                     except TimeoutError:
                         logger.warning("Timeout waiting for state. Continuing...")
                         continue
+                continue
+
+            # Handle WAIT sentinel: agent is waiting for heroes to finish
+            # their current commands before proceeding (e.g., before opening a door)
+            if action.get("command") == "WAIT":
+                logger.debug("Agent returned WAIT — polling for state until heroes ready")
+                try:
+                    next_state_dict = self._ipc.receive_state(timeout=3.0)
+                    current_state = self._parser.parse(next_state_dict)
+                    floor_metrics.update_from_state(current_state)
+
+                    if current_state.turn != last_turn:
+                        last_turn = current_state.turn
+                        actions_this_turn = 0
+                        self._agent.new_turn()
+                except TimeoutError:
+                    pass  # Will retry on next loop iteration
                 continue
 
             # Safety: prevent infinite loops within a single turn
@@ -320,23 +342,6 @@ class AgentRunner:
                 # No state received — action may have failed or mod didn't push
                 pass
 
-            # After a successful MOVE_HERO, wait for the hero to actually arrive
-            if success and command == "MOVE_HERO":
-                target_room = parameters.get("target_room_index")
-                hero_name = parameters.get("hero_name")
-                if target_room is not None and hero_name is not None:
-                    current_state = self._wait_for_hero_arrival(
-                        hero_name, target_room, current_state, floor_metrics
-                    )
-                    # After arrival, wait for item pickup if items are in that room
-                    current_state = self._wait_for_item_pickup(
-                        target_room, current_state, floor_metrics
-                    )
-                    if current_state.turn != last_turn:
-                        last_turn = current_state.turn
-                        actions_this_turn = 0
-                        self._agent.new_turn()
-
         # If we get here via stop signal
         floor_metrics.finish("aborted")
         return floor_metrics
@@ -348,99 +353,6 @@ class AgentRunner:
             logger.info(f"Metrics saved to {self.metrics_dir / self._run_metrics.run_id}.json")
         except Exception as e:
             logger.error(f"Failed to save metrics: {e}")
-
-    def _wait_for_hero_arrival(
-        self,
-        hero_name: str,
-        target_room: int,
-        current_state: GameStatePayload,
-        floor_metrics,
-        timeout: float = 10.0,
-    ) -> GameStatePayload:
-        """
-        Poll for state updates until the hero arrives at the target room.
-
-        MOVE_HERO returns OK immediately but the hero takes time to walk.
-        This method waits until the state shows the hero in the correct room.
-
-        Args:
-            hero_name: The hero that was moved.
-            target_room: The room they should arrive at.
-            current_state: Current game state (may already show arrival).
-            floor_metrics: Floor metrics to update.
-            timeout: Max seconds to wait.
-
-        Returns:
-            The latest game state (may be updated or same if timeout).
-        """
-        import time as _time
-
-        # Check if already there
-        hero = next((h for h in current_state.heroes if h.name == hero_name), None)
-        if hero and hero.room_index == target_room:
-            return current_state
-
-        start = _time.time()
-        while _time.time() - start < timeout:
-            try:
-                next_state_dict = self._ipc.receive_state(timeout=2.0)
-                current_state = self._parser.parse(next_state_dict)
-                floor_metrics.update_from_state(current_state)
-
-                hero = next((h for h in current_state.heroes if h.name == hero_name), None)
-                if hero and hero.room_index == target_room:
-                    logger.debug(f"Hero {hero_name} arrived at room {target_room}")
-                    return current_state
-            except TimeoutError:
-                continue
-
-        logger.debug(f"Timed out waiting for {hero_name} to reach room {target_room}")
-        return current_state
-
-    def _wait_for_item_pickup(
-        self,
-        target_room: int,
-        current_state: GameStatePayload,
-        floor_metrics,
-    ) -> GameStatePayload:
-        """
-        Wait for hero to pick up items in a room.
-
-        Heroes auto-collect items after arriving, but it takes a few seconds.
-        Wait time adjusts based on game time_scale (faster game = shorter wait).
-
-        Args:
-            target_room: The room where items should be collected.
-            current_state: Current game state.
-            floor_metrics: Floor metrics to update.
-
-        Returns:
-            The latest game state.
-        """
-        import time as _time
-
-        # Check if there are items in this room to begin with
-        items_in_room = [i for i in current_state.dropped_items if i.room_index == target_room]
-        if not items_in_room:
-            return current_state
-
-        # 4 game-seconds to pick up, divided by time_scale for wall-clock wait
-        time_scale = max(current_state.time_scale, 0.1)
-        timeout = 4.0 / time_scale
-
-        logger.debug(f"Waiting {timeout:.1f}s (game 4s at {time_scale}x) for {len(items_in_room)} items in room {target_room}")
-
-        # Fixed wait — drain any state updates that arrive during this time
-        start = _time.time()
-        while _time.time() - start < timeout:
-            try:
-                next_state_dict = self._ipc.receive_state(timeout=1.0)
-                current_state = self._parser.parse(next_state_dict)
-                floor_metrics.update_from_state(current_state)
-            except TimeoutError:
-                continue
-
-        return current_state
 
     def _setup_signal_handlers(self) -> None:
         """Set up graceful shutdown on SIGINT/SIGTERM."""

@@ -23,6 +23,9 @@ namespace DotEAgent.Hooks
 
         public object ExtractState()
         {
+            // Re-fetch dungeon singleton each call to handle floor transitions
+            // (the game creates a new Dungeon instance for each floor)
+            dungeon = SingletonManager.Get<Dungeon>(false);
             if (dungeon == null)
                 return null;
 

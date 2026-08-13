@@ -73,6 +73,16 @@ def _action(command: str, **params) -> dict:
     return {"command": command, "parameters": params}
 
 
+# Special sentinel: returned when the agent is waiting for all heroes
+# to finish their current commands before proceeding with a coordinated action.
+WAIT_SENTINEL = {"command": "WAIT", "parameters": {}}
+
+
+def _wait() -> dict:
+    """Return the WAIT sentinel indicating the agent is waiting for heroes to be ready."""
+    return WAIT_SENTINEL
+
+
 # ---------------------------------------------------------------------------
 # HeuristicAgent
 # ---------------------------------------------------------------------------
@@ -129,9 +139,16 @@ class HeuristicAgent(BaseAgent):
         self._repaired_this_turn: set[str] = set()
         self._doors_opened_this_turn: set[tuple[int, int]] = set()
         self._failed_actions: set[str] = set()  # Blacklisted action keys for this turn
-        self._moves_issued_this_turn: set[str] = set()  # Hero names that already got a move this turn
         self._built_industry_this_floor = False  # Only build 1 industry gen per floor
         self._last_action_failed = False
+
+        # Hero busy-flag system: tracks heroes currently carrying out a
+        # time-requiring command (MOVE_HERO, REPAIR_MODULE, PICK_UP item).
+        # Maps hero_name -> {"target_room": int} for move commands,
+        # or {"action": str} for other time-requiring commands.
+        # Distinct from the game's isUsable — this tracks agent-issued commands
+        # that haven't completed yet (hero still in transit, etc.).
+        self._hero_busy: dict[str, dict] = {}
 
     # ------------------------------------------------------------------
     # BaseAgent interface
@@ -140,7 +157,15 @@ class HeuristicAgent(BaseAgent):
     def select_action(self, state: GameStatePayload) -> Optional[dict]:
         """
         Main entry point: determine FSM phase, then delegate to appropriate handler.
+
+        Returns:
+            - An action dict to execute
+            - A special {"command": "WAIT"} sentinel if waiting for heroes to finish
+            - None if nothing to do (agent idle)
         """
+        # Update busy flags: clear heroes that have completed their commands
+        self._update_busy_flags(state)
+
         # Build/refresh graph
         self._graph = self._graph_builder.build(state)
         self._update_explored_rooms(state)
@@ -148,16 +173,18 @@ class HeuristicAgent(BaseAgent):
         # Determine FSM state
         self._phase = self._determine_phase(state)
 
-        # Clear move tracking when phase changes back to Strategy
-        # (heroes have finished moving after combat)
-        if state.game_phase.is_planning:
-            self._moves_issued_this_turn.clear()
-
         logger.debug(f"FSM phase: {self._phase.name}, game_phase: {state.game_phase}")
+        logger.debug(f"Busy heroes: {list(self._hero_busy.keys())}")
 
         # If we have pending moves queued, execute next one
         if self._pending_moves:
             return self._pending_moves.pop(0)
+
+        # Continue multi-hop moves for busy heroes (they've completed one hop
+        # but haven't reached their final destination yet)
+        action = self._continue_multi_hop_moves(state)
+        if action:
+            return action
 
         # Delegate to phase handler
         if self._phase == AgentPhase.ESCAPE:
@@ -172,17 +199,17 @@ class HeuristicAgent(BaseAgent):
             action = self._handle_build(state)
 
         # Guard: never send MOVE_HERO to a room the hero is already in
-        # Also prevent issuing multiple moves for the same hero in one turn
+        # Also prevent issuing time-requiring commands to heroes that are busy
         if action and action.get("command") == "MOVE_HERO":
             hero_name = action["parameters"].get("hero_name")
             target = action["parameters"].get("target_room_index")
             hero = next((h for h in state.heroes if h.name == hero_name), None)
             if hero and hero.room_index == target:
-                logger.debug(f"Suppressed no-op move: {hero_name} already in room {target} (state_room={hero.room_index})")
+                logger.debug(f"Suppressed no-op move: {hero_name} already in room {target}")
                 return None
-            # Only one move per hero per turn during Strategy (hero is in transit)
-            if state.game_phase.is_planning and hero_name in self._moves_issued_this_turn:
-                logger.debug(f"Suppressed duplicate move: {hero_name} already moving this turn (state_room={hero.room_index if hero else '?'}, target={target})")
+            # Don't send move to a hero that's already busy during Strategy phase
+            if state.game_phase.is_planning and hero_name in self._hero_busy:
+                logger.debug(f"Suppressed move for busy hero: {hero_name} (busy: {self._hero_busy[hero_name]})")
                 return None
 
         return action
@@ -198,10 +225,11 @@ class HeuristicAgent(BaseAgent):
         self._hero_roles.clear()
         self._explored_rooms.clear()
         self._built_industry_this_floor = False
+        self._hero_busy.clear()
         self._clear_turn_tracking()
 
     def on_action_result(self, command: dict, result: dict) -> None:
-        """Track failed actions to avoid retry loops."""
+        """Track failed actions to avoid retry loops. Set busy flags on success."""
         self._last_action_failed = not result.get("success", False)
         if self._last_action_failed:
             # Blacklist the action so we don't retry it this turn
@@ -223,19 +251,30 @@ class HeuristicAgent(BaseAgent):
                 self._failed_actions.add(key)
             logger.warning(f"Action failed: {cmd} - {result.get('error')}")
         else:
-            # Track successful moves to update our internal position model
+            # Track successful time-requiring actions — set hero busy flag
             cmd = command.get("command", "")
             params = command.get("parameters", {})
             if cmd == "MOVE_HERO":
                 hero_name = params.get("hero_name")
                 target = params.get("target_room_index")
                 if hero_name is not None and target is not None:
-                    self._moves_issued_this_turn.add(hero_name)
+                    # Don't overwrite an existing busy flag (e.g., multi-hop move
+                    # where the flag was pre-set to the final destination)
+                    if hero_name not in self._hero_busy:
+                        self._hero_busy[hero_name] = {"action": "move", "target_room": target}
+                    logger.debug(f"Hero {hero_name} marked busy: moving to room {self._hero_busy[hero_name].get('target_room')}")
+            elif cmd == "REPAIR_MODULE":
+                hero_name = params.get("hero_name")
+                if hero_name:
+                    self._hero_busy[hero_name] = {"action": "repair"}
+                    logger.debug(f"Hero {hero_name} marked busy: repairing")
             elif cmd == "OPEN_DOOR":
-                # Hero enters the newly opened room
+                # Hero enters the newly opened room — mark busy briefly
                 hero_name = params.get("hero_name")
                 target = params.get("target_room_index")
-                # No position tracking needed — mod sends fresh state
+                if hero_name and target is not None:
+                    self._hero_busy[hero_name] = {"action": "move", "target_room": target}
+                    logger.debug(f"Hero {hero_name} marked busy: entering room {target} (door open)")
             elif cmd == "BUILD_MODULE":
                 # Track industry gen built
                 module_name = params.get("module_name", "")
@@ -261,13 +300,10 @@ class HeuristicAgent(BaseAgent):
           4. EXPLORE — if there are unexplored doors during Strategy
           5. BUILD — default during Strategy phase
         """
-        # Escape conditions: crystal already unplugged to exit, or all doors opened
+        # Escape conditions: crystal already unplugged to exit, or escape already started
         if state.is_escaping:
             return AgentPhase.ESCAPE
         if self._escape_initiated:
-            return AgentPhase.ESCAPE
-        if self._should_initiate_escape(state):
-            self._escape_initiated = True
             return AgentPhase.ESCAPE
 
         # During combat (Action phase)
@@ -286,6 +322,7 @@ class HeuristicAgent(BaseAgent):
         Escape when:
           1. The exit room has been discovered (present in state.rooms)
           2. No unexplored doors remain on the floor
+          3. No dropped items remain on the floor (collect everything first)
         """
         if not state.game_phase.is_planning:
             return False
@@ -310,6 +347,10 @@ class HeuristicAgent(BaseAgent):
         for room in state.rooms:
             if not room.is_fully_opened:
                 return False
+
+        # Don't escape while any hero is still busy (finishing tasks)
+        if self._any_hero_busy():
+            return False
 
         return True
 
@@ -555,8 +596,10 @@ class HeuristicAgent(BaseAgent):
           6. Collect dropped items (send hero to pick up)
           7. Recruit heroes if affordable
           8. Buy cheapest merchant item if affordable, equip to Gork > Max
+          8.5. Equip items from inventory
           9. Move Gork to room 1 if not there
-          10. Open any remaining doors; if none, start escape
+          9.5. Check escape conditions — if met, initiate escape
+          10. Open any remaining doors
         """
         # --- Step 1: Open door from crystal room ---
         action = self._macro_open_crystal_room_door(state)
@@ -608,7 +651,15 @@ class HeuristicAgent(BaseAgent):
         if action:
             return action
 
-        # --- Step 10: Open any remaining door, or signal escape ---
+        # --- Step 9.5: Initiate escape if conditions met ---
+        # This is checked AFTER item collection (step 6), merchant (step 8),
+        # and positioning (step 9) so heroes finish housekeeping before escaping.
+        if self._should_initiate_escape(state):
+            self._escape_initiated = True
+            self._phase = AgentPhase.ESCAPE
+            return self._handle_escape(state)
+
+        # --- Step 10: Open any remaining door ---
         action = self._macro_open_any_door(state)
         if action:
             return action
@@ -626,10 +677,26 @@ class HeuristicAgent(BaseAgent):
     DUST_PER_POWERED_ROOM = 10  # Cost to power one room
 
     def _macro_open_crystal_room_door(self, state: GameStatePayload) -> Optional[dict]:
-        """Step 1: Open a door from the crystal room if one exists. Uses Max."""
+        """Step 1: Open a door from the crystal room if one exists. Uses Max.
+        
+        Requires all heroes to be ready (not busy) since opening a door
+        triggers combat and all heroes need to be in position.
+        """
         crystal_room = state.start_room_index
 
         # Check state.closed_doors for a door touching the crystal room
+        has_crystal_door = any(
+            door.room1_index == crystal_room or door.room2_index == crystal_room
+            for door in state.closed_doors
+        )
+        if not has_crystal_door:
+            return None
+
+        # Opening a door requires all heroes ready
+        if not self._all_heroes_ready():
+            logger.debug("Waiting for all heroes to be ready before opening crystal room door")
+            return _wait()
+
         for door in state.closed_doors:
             if door.room1_index == crystal_room or door.room2_index == crystal_room:
                 from_room = crystal_room
@@ -774,6 +841,9 @@ class HeuristicAgent(BaseAgent):
     def _macro_collect_items(self, state: GameStatePayload) -> Optional[dict]:
         """
         Step 6: Send a hero to pick up any dropped items on the floor.
+        
+        When a hero arrives at a room with items, the busy-flag system will
+        transition them to 'awaiting_pickup' until items disappear from state.
         """
         if not state.dropped_items:
             return None
@@ -796,12 +866,18 @@ class HeuristicAgent(BaseAgent):
                 self._collected_this_turn.add(item_key)
                 # For chests, need explicit interact
                 if item.type == "Chest":
+                    logger.info(
+                        f"Collecting chest '{item.name}' in room {item.room_index} "
+                        f"with {hero_in_room.name}"
+                    )
                     return _action(
                         "COLLECT_ITEM",
                         hero_name=hero_in_room.name,
                         item_name=item.name or "",
                     )
-                continue  # Dust/equipment auto-collects
+                # Dust/equipment auto-collects — hero just needs to be in the room.
+                # The busy flag system handles waiting via awaiting_pickup.
+                continue
 
             # Move nearest hero there
             closest = self._closest_hero_to_room(available, item.room_index)
@@ -809,6 +885,14 @@ class HeuristicAgent(BaseAgent):
                 self._collected_this_turn.add(item_key)
                 path = self._path_through_open_doors(closest.room_index, item.room_index)
                 if path and len(path) >= 2:
+                    logger.info(
+                        f"Dispatching {closest.name} to room {item.room_index} to pick up "
+                        f"'{item.name}' (type={item.type}) — path: {path}"
+                    )
+                    # Set busy flag to the FINAL destination (item's room),
+                    # not just the next hop. This prevents the decision tree from
+                    # reassigning the hero after each hop completes.
+                    self._hero_busy[closest.name] = {"action": "move", "target_room": item.room_index}
                     return _action(
                         "MOVE_HERO",
                         hero_name=closest.name,
@@ -973,6 +1057,8 @@ class HeuristicAgent(BaseAgent):
             return None
         if gork.is_operating:
             return None
+        if self._is_hero_busy(gork.name):
+            return None
 
         # Don't reposition Gork if he's the only hero alive — he needs to explore
         other_heroes = [h for h in state.heroes if "Gork" not in h.name]
@@ -1003,7 +1089,18 @@ class HeuristicAgent(BaseAgent):
         Step 10: Open any remaining unexplored door.
         Prefer Max for exploration, but use any available hero if Max is dead.
         If no doors left, this returns None (escape will be triggered by FSM).
+        
+        Requires all heroes to be ready (not busy) since opening a door
+        triggers combat.
         """
+        if not state.closed_doors:
+            return None
+
+        # Opening a door requires all heroes ready
+        if not self._all_heroes_ready():
+            logger.debug("Waiting for all heroes to be ready before opening door")
+            return _wait()
+
         # Find exploration hero: prefer Max, fall back to any available
         explorer = next(
             (h for h in state.heroes if "Max" in h.name and not h.is_operating),
@@ -1016,7 +1113,6 @@ class HeuristicAgent(BaseAgent):
             return None
 
         explorer_room = explorer.room_index
-        explorer_moved = explorer.name in self._moves_issued_this_turn
 
         for door in state.closed_doors:
             from_room = None
@@ -1036,7 +1132,7 @@ class HeuristicAgent(BaseAgent):
             if door_key in self._doors_opened_this_turn:
                 continue
 
-            if explorer_room == from_room and not explorer_moved:
+            if explorer_room == from_room:
                 # Explorer is confirmed at the door's source — open it
                 self._doors_opened_this_turn.add(door_key)
                 return _action(
@@ -1046,15 +1142,14 @@ class HeuristicAgent(BaseAgent):
                     target_room_index=target,
                 )
 
-            # Explorer isn't at the door source (or just moved) — move them there
-            if not explorer_moved:
-                path = self._path_through_open_doors(explorer_room, from_room)
-                if path and len(path) >= 2:
-                    return _action(
-                        "MOVE_HERO",
-                        hero_name=explorer.name,
-                        target_room_index=path[1],
-                    )
+            # Explorer isn't at the door source — move them there
+            path = self._path_through_open_doors(explorer_room, from_room)
+            if path and len(path) >= 2:
+                return _action(
+                    "MOVE_HERO",
+                    hero_name=explorer.name,
+                    target_room_index=path[1],
+                )
 
         return None
 
@@ -1522,9 +1617,14 @@ class HeuristicAgent(BaseAgent):
 
         Room 1 has prisoner prods — heroes should fight there.
         Heroes auto-attack mobs in their room, so just positioning is needed.
-        Does NOT check _moves_issued_this_turn — heroes need to keep moving
-        toward room 1 even across multiple hops during a long Action phase.
+        Busy flags are cleared during combat, so heroes move freely hop by hop.
+        Also heals heroes below 30% HP if food allows.
         """
+        # Heal wounded heroes first (priority over positioning)
+        action = self._try_heal_in_combat(state)
+        if action:
+            return action
+
         rally_room = 1
 
         # Get defensive heroes (non-operating, non-carrying-crystal)
@@ -1561,7 +1661,13 @@ class HeuristicAgent(BaseAgent):
 
         If HP < threshold, move toward room 1 where Gork and prisoner prods defend.
         Exception: fall back to crystal room (room 0) if mobs are detected IN room 1.
+        Also heals heroes below 30% HP if food allows.
         """
+        # Heal wounded heroes first
+        action = self._try_heal_in_combat(state)
+        if action:
+            return action
+
         if not self.guidelines.retreat_enabled:
             return self._handle_defend(state)
 
@@ -1593,6 +1699,50 @@ class HeuristicAgent(BaseAgent):
         # All wounded heroes are at crystal room or no one needs retreat
         # Fall through to DEFEND
         return self._handle_defend(state)
+
+    # ------------------------------------------------------------------
+    # Combat Healing
+    # ------------------------------------------------------------------
+
+    def _try_heal_in_combat(self, state: GameStatePayload) -> Optional[dict]:
+        """
+        Heal any hero below 30% HP during combat using food.
+
+        Uses HEAL_HERO command which spends food to restore HP.
+        Prioritizes the most wounded hero first.
+        """
+        if state.resources is None:
+            return None
+
+        food = state.resources.food
+        if food < 5:  # Need at least some food to heal
+            return None
+
+        # Find heroes below 30% HP, sorted by HP ratio (most wounded first)
+        wounded = []
+        for hero in state.heroes:
+            if hero.max_hp <= 0:
+                continue
+            hp_ratio = hero.hp / hero.max_hp
+            if hp_ratio < 0.3:
+                wounded.append((hp_ratio, hero))
+
+        if not wounded:
+            return None
+
+        wounded.sort(key=lambda x: x[0])
+        _, most_wounded = wounded[0]
+
+        # Heal with a reasonable amount of food (don't spend it all)
+        heal_amount = min(food // 2, 20)  # Spend up to half food, max 20
+        if heal_amount < 5:
+            return None
+
+        logger.info(
+            f"Healing {most_wounded.name} ({most_wounded.hp:.0f}/{most_wounded.max_hp:.0f} HP) "
+            f"with {heal_amount} food"
+        )
+        return _action("HEAL_HERO", hero_name=most_wounded.name, food_amount=int(heal_amount))
 
     # ------------------------------------------------------------------
     # ESCAPE State (Tasks 4.15-4.17)
@@ -1673,6 +1823,11 @@ class HeuristicAgent(BaseAgent):
                 return None  # No path — wait
             else:
                 # --- Step 5: Pick up crystal ---
+                # Picking up crystal requires all heroes to be ready
+                # (starts the escape sequence — everyone needs to be in position)
+                if not self._all_heroes_ready():
+                    logger.debug("Waiting for all heroes to be ready before picking up crystal")
+                    return _wait()
                 return _action("PICK_UP_CRYSTAL", hero_name=max_hero.name)
 
         # --- Step 6: Move Max (with crystal) to exit room ---
@@ -1902,16 +2057,140 @@ class HeuristicAgent(BaseAgent):
         return list(defense_targets)
 
     # ------------------------------------------------------------------
+    # Hero Busy-Flag System
+    # ------------------------------------------------------------------
+
+    def _update_busy_flags(self, state: GameStatePayload) -> None:
+        """
+        Check current state against busy flags and clear heroes that have
+        completed their commands (arrived at target room, finished repair, etc.).
+
+        Called at the start of every select_action() call.
+        """
+        # During combat (Action phase), clear all busy flags — heroes move freely
+        if state.game_phase.is_combat:
+            if self._hero_busy:
+                logger.debug(f"Clearing all busy flags for combat phase")
+                self._hero_busy.clear()
+            return
+
+        completed = []
+        for hero_name, busy_info in self._hero_busy.items():
+            hero = next((h for h in state.heroes if h.name == hero_name), None)
+            if hero is None:
+                # Hero died or was removed — clear the flag
+                completed.append(hero_name)
+                continue
+
+            action = busy_info.get("action")
+            if action == "move":
+                target_room = busy_info.get("target_room")
+                if target_room is not None and hero.room_index == target_room:
+                    # Hero arrived at destination — check if items are in this room
+                    # or if the hero is already gathering an item
+                    items_in_room = [
+                        i for i in state.dropped_items if i.room_index == target_room
+                    ]
+                    if items_in_room or hero.is_gathering_item:
+                        # Transition to awaiting_pickup: hero must wait for items to be collected
+                        logger.info(
+                            f"Hero {hero_name} arrived at room {target_room} with "
+                            f"{len(items_in_room)} items (gathering={hero.is_gathering_item}) "
+                            f"— waiting for pickup"
+                        )
+                        self._hero_busy[hero_name] = {
+                            "action": "awaiting_pickup",
+                            "room": target_room,
+                        }
+                    else:
+                        logger.debug(f"Hero {hero_name} arrived at room {target_room}, no longer busy")
+                        completed.append(hero_name)
+            elif action == "awaiting_pickup":
+                room = busy_info.get("room")
+                items_in_room = [
+                    i for i in state.dropped_items if i.room_index == room
+                ]
+                # Also check if the hero is still in the gathering animation
+                # (game removes item from floor briefly during animation, then
+                # re-adds it if gathering is canceled by a move command)
+                is_gathering = hero.is_gathering_item if hero else False
+                logger.debug(
+                    f"Hero {hero_name} awaiting pickup in room {room}: "
+                    f"{len(items_in_room)} items remaining, is_gathering={is_gathering}"
+                )
+                if not items_in_room and not is_gathering:
+                    # All items collected and gathering animation finished!
+                    logger.info(
+                        f"Hero {hero_name} finished pickup in room {room} — "
+                        f"backpack: {[i.name for i in state.backpack_items]}, "
+                        f"shared_inv: {[i.name for i in state.shared_inventory_items]}"
+                    )
+                    completed.append(hero_name)
+            elif action == "repair":
+                # Repair completes when the hero becomes usable again
+                # (we don't have isUsable in state, so clear after one state tick)
+                # The next state after a repair success should show it done
+                completed.append(hero_name)
+
+        for name in completed:
+            del self._hero_busy[name]
+
+    def _is_hero_busy(self, hero_name: str) -> bool:
+        """Check if a hero is currently carrying out a time-requiring command."""
+        return hero_name in self._hero_busy
+
+    def _continue_multi_hop_moves(self, state: GameStatePayload) -> Optional[dict]:
+        """
+        For heroes that are busy moving to a multi-hop destination,
+        issue the next hop if they've stopped at an intermediate room.
+        """
+        for hero_name, busy_info in self._hero_busy.items():
+            if busy_info.get("action") != "move":
+                continue
+            target_room = busy_info.get("target_room")
+            if target_room is None:
+                continue
+
+            hero = next((h for h in state.heroes if h.name == hero_name), None)
+            if hero is None:
+                continue
+
+            # Hero hasn't reached final destination yet
+            if hero.room_index != target_room:
+                # Issue next hop toward target
+                path = self._path_through_open_doors(hero.room_index, target_room)
+                if path and len(path) >= 2:
+                    next_hop = path[1]
+                    logger.debug(f"Continuing multi-hop: {hero_name} at room {hero.room_index} -> next hop {next_hop} (final: {target_room})")
+                    return _action(
+                        "MOVE_HERO",
+                        hero_name=hero_name,
+                        target_room_index=next_hop,
+                    )
+
+        return None
+
+    def _any_hero_busy(self) -> bool:
+        """Check if ANY hero is currently carrying out a time-requiring command."""
+        return len(self._hero_busy) > 0
+
+    def _all_heroes_ready(self) -> bool:
+        """Check if all heroes are ready (no busy flags). Required before open door / pick up crystal."""
+        return len(self._hero_busy) == 0
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
     def _get_available_heroes(self, state: GameStatePayload) -> list[HeroState]:
-        """Get heroes that can be dispatched (not operating, not carrying crystal)."""
+        """Get heroes that can be dispatched (not operating, not carrying crystal, not busy)."""
         heroes = []
         for h in state.heroes:
             if h.has_crystal:
                 continue
             if h.is_operating and self.guidelines.protect_operators:
+                continue
+            if self._is_hero_busy(h.name):
                 continue
             heroes.append(h)
         return heroes
@@ -1997,7 +2276,6 @@ class HeuristicAgent(BaseAgent):
         self._repaired_this_turn.clear()
         self._doors_opened_this_turn.clear()
         self._failed_actions.clear()
-        self._moves_issued_this_turn.clear()
         self._last_action_failed = False
 
     @property

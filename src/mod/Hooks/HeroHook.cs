@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Reflection;
 using DotEAgent.Models;
 
 namespace DotEAgent.Hooks
@@ -9,6 +10,7 @@ namespace DotEAgent.Hooks
     public class HeroHook : IStateHook
     {
         private DungeonHook dungeonHook;
+        private FieldInfo gatheringItemField;
 
         public string HookId { get { return "heroes"; } }
         public bool IsBound { get { return dungeonHook != null && dungeonHook.IsBound; } }
@@ -16,6 +18,8 @@ namespace DotEAgent.Hooks
         public HeroHook(DungeonHook dungeonHook)
         {
             this.dungeonHook = dungeonHook;
+            // Cache reflection field for gatheringItem (private field on Hero)
+            gatheringItemField = typeof(Hero).GetField("gatheringItem", BindingFlags.NonPublic | BindingFlags.Instance);
         }
 
         public bool TryBind()
@@ -86,6 +90,12 @@ namespace DotEAgent.Hooks
             if (data.IsOperating)
             {
                 data.OperatingModuleName = hero.OperatingModule.name;
+            }
+
+            // Item gathering state (hero is mid-pickup animation — moving cancels it!)
+            if (gatheringItemField != null)
+            {
+                data.IsGatheringItem = gatheringItemField.GetValue(hero) != null;
             }
 
             data.IsRecruitable = hero.IsRecruitable;

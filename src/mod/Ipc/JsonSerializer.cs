@@ -199,6 +199,7 @@ namespace DotEAgent.Ipc
             AppendBool(sb, "has_crystal", h.HasCrystal, false);
             AppendBool(sb, "is_operating", h.IsOperating, false);
             AppendStringOrNull(sb, "operating_module_name", h.OperatingModuleName, false);
+            AppendBool(sb, "is_gathering_item", h.IsGatheringItem, false);
             AppendBool(sb, "is_recruitable", h.IsRecruitable, false);
             AppendBool(sb, "is_recruited", h.IsRecruited, false);
 

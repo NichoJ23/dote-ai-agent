@@ -13,6 +13,7 @@ namespace DotEAgent.Models
         public bool HasCrystal;
         public bool IsOperating;
         public string OperatingModuleName;
+        public bool IsGatheringItem;      // Currently in item pickup animation (do NOT move hero)
         public bool IsRecruitable;
         public bool IsRecruited;
         public List<ActiveSkillData> ActiveSkills;

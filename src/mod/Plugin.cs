@@ -75,6 +75,12 @@ namespace DotEAgent
 
         private void Update()
         {
+            // Enforce game speed every frame (game resets timeScale on unpause/transitions)
+            if (Time.timeScale != 0f && Time.timeScale != 2f)
+            {
+                Time.timeScale = 2f;
+            }
+
             // Always accept IPC clients and process actions (even before dungeon loads)
             // This allows menu commands like QUERY_MENU_STATE and START_NEW_GAME
             ipcBridge.AcceptClients();
@@ -110,7 +116,10 @@ namespace DotEAgent
                 wasStateConnected = true;
 
                 float timeSinceLastPush = Time.unscaledTime - lastStateSentTime;
-                bool periodicPush = timeSinceLastPush >= 1.0f;
+                float pushInterval = (state.GamePhase == "Action") 
+                    ? 0.5f / Time.timeScale 
+                    : 1.0f / Time.timeScale;
+                bool periodicPush = timeSinceLastPush >= pushInterval;
 
                 if (newConnection || state.Turn != lastSentTurn || state.GamePhase != lastSentPhase || periodicPush)
                 {

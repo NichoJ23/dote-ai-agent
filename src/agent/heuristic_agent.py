@@ -971,11 +971,17 @@ class HeuristicAgent(BaseAgent):
         """
         Step 9: Move Gork to room 1 if he's not there already.
         Room 1 is the first opened room (defensive position).
+        Only do this if there are other heroes alive (if Gork is solo, skip).
         """
         gork = next((h for h in state.heroes if "Gork" in h.name), None)
         if gork is None:
             return None
         if gork.is_operating:
+            return None
+
+        # Don't reposition Gork if he's the only hero alive — he needs to explore
+        other_heroes = [h for h in state.heroes if "Gork" not in h.name]
+        if not other_heroes:
             return None
 
         # Use tracked position if available (handles stale state)
@@ -999,22 +1005,23 @@ class HeuristicAgent(BaseAgent):
 
     def _macro_open_any_door(self, state: GameStatePayload) -> Optional[dict]:
         """
-        Step 10: Open any remaining unexplored door using Max (not Gork).
-        Uses Max's ACTUAL state position (not tracked), since OPEN_DOOR
-        requires the hero to physically be in the room.
+        Step 10: Open any remaining unexplored door.
+        Prefer Max for exploration, but use any available hero if Max is dead.
         If no doors left, this returns None (escape will be triggered by FSM).
         """
-        max_hero = next(
+        # Find exploration hero: prefer Max, fall back to any available
+        explorer = next(
             (h for h in state.heroes if "Max" in h.name and not h.is_operating),
             None,
         )
-        if max_hero is None:
+        if explorer is None:
+            available = self._get_available_heroes(state)
+            explorer = available[0] if available else None
+        if explorer is None:
             return None
 
-        # Use actual state position for OPEN_DOOR (not _hero_positions)
-        # because the mod validates physical location
-        max_room = max_hero.room_index
-        max_moved_this_turn = max_hero.name in self._moves_issued_this_turn
+        explorer_room = explorer.room_index
+        explorer_moved = explorer.name in self._moves_issued_this_turn
 
         for door in state.closed_doors:
             from_room = None
@@ -1034,23 +1041,23 @@ class HeuristicAgent(BaseAgent):
             if door_key in self._doors_opened_this_turn:
                 continue
 
-            if max_room == from_room and not max_moved_this_turn:
-                # Max is confirmed at the door's source — open it
+            if explorer_room == from_room and not explorer_moved:
+                # Explorer is confirmed at the door's source — open it
                 self._doors_opened_this_turn.add(door_key)
                 return _action(
                     "OPEN_DOOR",
-                    hero_name=max_hero.name,
+                    hero_name=explorer.name,
                     from_room_index=from_room,
                     target_room_index=target,
                 )
 
-            # Max isn't at the door source (or just moved) — move him there
-            if not max_moved_this_turn:
-                path = self._path_through_open_doors(max_room, from_room)
+            # Explorer isn't at the door source (or just moved) — move them there
+            if not explorer_moved:
+                path = self._path_through_open_doors(explorer_room, from_room)
                 if path and len(path) >= 2:
                     return _action(
                         "MOVE_HERO",
-                        hero_name=max_hero.name,
+                        hero_name=explorer.name,
                         target_room_index=path[1],
                     )
 

@@ -366,6 +366,8 @@ def main():
     parser.add_argument("--episodes", type=int, default=None, help="Override max episodes")
     parser.add_argument("--stage", type=int, default=None, help="Force curriculum stage")
     parser.add_argument("--no-launch", action="store_true", help="Games already running on expected ports")
+    parser.add_argument("--game-dir", type=str, default=None,
+                        help="Base dir with instance_0/, instance_1/, etc. (from setup_multi_env.py)")
     args = parser.parse_args()
 
     # Setup logging

@@ -241,9 +241,32 @@ class AgentRunner:
             logger.info("Waiting for game-over screen to appear...")
             time.sleep(5.0)
 
+            # Reconnect IPC if the connection was lost during game over
+            # (common: state socket breaks when dungeon is destroyed)
+            if not self._ipc.is_connected:
+                logger.info("IPC connection lost, reconnecting...")
+                self._ipc.disconnect()
+                try:
+                    self._ipc.connect(retry_interval=2.0)
+                    logger.info("IPC reconnected")
+                except (ConnectionError, OSError) as e:
+                    logger.error(f"Failed to reconnect IPC: {e}")
+                    return False
+
             # Send RETURN_TO_MENU — this calls GoBackToMainMenu(true) in the mod
             logger.info("Sending RETURN_TO_MENU command...")
-            result = self._ipc.send_action("RETURN_TO_MENU", {})
+            try:
+                result = self._ipc.send_action("RETURN_TO_MENU", {})
+            except (ConnectionError, OSError) as e:
+                # Connection broke — reconnect and retry
+                logger.warning(f"RETURN_TO_MENU send failed ({e}), reconnecting...")
+                self._ipc.disconnect()
+                try:
+                    self._ipc.connect(retry_interval=2.0)
+                    result = self._ipc.send_action("RETURN_TO_MENU", {})
+                except (ConnectionError, OSError) as e2:
+                    logger.error(f"Failed to reconnect and send RETURN_TO_MENU: {e2}")
+                    return False
 
             if not result.get("success", False):
                 error = result.get("error", "unknown")

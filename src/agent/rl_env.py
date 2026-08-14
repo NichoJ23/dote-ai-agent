@@ -46,7 +46,7 @@ MAX_INVENTORY = 20     # Max backpack + shared inventory items
 # Room feature count
 ROOM_FEATURE_DIM = 20
 # Hero feature count
-HERO_FEATURE_DIM = 18
+HERO_FEATURE_DIM = 22
 # Mob feature count
 MOB_FEATURE_DIM = 5
 # Game meta count
@@ -193,6 +193,11 @@ class RLEnv(gym.Env):
         room_target = int(action["room_target"])
         hero_target = int(action["hero_target"])
         entity_target = int(action["entity_target"])
+
+        # Clamp parameters to valid targets for the chosen option
+        room_target, hero_target, entity_target = self._clamp_parameters(
+            option, room_target, hero_target, entity_target
+        )
 
         # Translate to game command
         command, parameters = self._translate_action(
@@ -496,6 +501,168 @@ class RLEnv(gym.Env):
             del self._hero_move_targets[name]
 
     # ------------------------------------------------------------------
+    # Parameter Clamping
+    # ------------------------------------------------------------------
+
+    def _clamp_parameters(
+        self,
+        option: StrategicOption,
+        room_target: int,
+        hero_target: int,
+        entity_target: int,
+    ) -> tuple[int, int, int]:
+        """
+        Clamp raw network outputs to valid parameter values for the chosen option.
+
+        The network still learns WHICH option to pick (strategic decision).
+        This just ensures the parameters are valid targets so the action
+        doesn't fail due to impossible room/hero/entity combinations.
+
+        Returns:
+            (clamped_room, clamped_hero, clamped_entity)
+        """
+        state = self._current_state
+        if state is None:
+            return room_target, hero_target, entity_target
+
+        # Clamp hero_target to valid hero index
+        num_heroes = len(state.heroes)
+        if num_heroes > 0:
+            hero_target = hero_target % num_heroes
+        else:
+            hero_target = 0
+
+        # Clamp based on option type
+        if option == StrategicOption.OPEN_DOOR:
+            # Room target must be an adjacent unexplored room (closed door target)
+            # Hero must be usable
+            hero_target = self._pick_usable_hero(state, hero_target)
+            room_target = self._pick_valid_door_target(state, hero_target)
+
+        elif option == StrategicOption.POSITION_HERO:
+            hero_target = self._pick_usable_hero(state, hero_target)
+            # Room target: any explored room (rooms in state)
+            if state.rooms:
+                room_target = state.rooms[room_target % len(state.rooms)].index
+
+        elif option == StrategicOption.COLLECT_ITEM:
+            hero_target = self._pick_usable_hero(state, hero_target)
+            # Entity target indexes into dropped_items (resolved in _translate)
+            if state.dropped_items:
+                entity_target = entity_target % len(state.dropped_items)
+
+        elif option == StrategicOption.POWER_ROOM:
+            # Room must be unpowered and non-auto
+            unpowered = [r.index for r in state.rooms if not r.is_powered and not r.is_auto_powered]
+            if unpowered:
+                room_target = unpowered[room_target % len(unpowered)]
+
+        elif option == StrategicOption.DEPOWER_ROOM:
+            # Room must be powered and non-auto
+            powered = [r.index for r in state.rooms if r.is_powered and not r.is_auto_powered]
+            if powered:
+                room_target = powered[room_target % len(powered)]
+
+        elif option == StrategicOption.BUILD_MODULE:
+            # Room must be powered with available slots
+            buildable_rooms = []
+            for r in state.rooms:
+                if not (r.is_powered or r.is_auto_powered):
+                    continue
+                if r.major_module_name is None or len(r.minor_module_names) < r.minor_slot_count:
+                    buildable_rooms.append(r.index)
+            if buildable_rooms:
+                room_target = buildable_rooms[room_target % len(buildable_rooms)]
+            # Entity target indexes into buildable_blueprints (resolved in _translate)
+            if state.buildable_blueprints:
+                entity_target = entity_target % len(state.buildable_blueprints)
+
+        elif option == StrategicOption.DESTROY_MODULE:
+            # Room must have modules
+            rooms_with_modules = [
+                r.index for r in state.rooms
+                if r.major_module_name or r.minor_module_names
+            ]
+            if rooms_with_modules:
+                room_target = rooms_with_modules[room_target % len(rooms_with_modules)]
+
+        elif option == StrategicOption.RESEARCH:
+            if state.researchable_blueprints:
+                entity_target = entity_target % len(state.researchable_blueprints)
+
+        elif option == StrategicOption.RECRUIT_HERO:
+            hero_target = self._pick_usable_hero(state, hero_target)
+            if state.recruitable_heroes:
+                entity_target = entity_target % len(state.recruitable_heroes)
+
+        elif option == StrategicOption.BUY_ITEM:
+            hero_target = self._pick_usable_hero(state, hero_target)
+            all_items = [(it, m) for m in state.merchants for it in m.items]
+            if all_items:
+                entity_target = entity_target % len(all_items)
+
+        elif option == StrategicOption.EQUIP_ITEM:
+            all_items = list(state.backpack_items) + list(state.shared_inventory_items)
+            if all_items:
+                entity_target = entity_target % len(all_items)
+
+        elif option == StrategicOption.HEAL_HERO:
+            # Pick a hero that's actually damaged
+            damaged = [i for i, h in enumerate(state.heroes) if h.hp < h.max_hp]
+            if damaged:
+                hero_target = damaged[hero_target % len(damaged)]
+
+        elif option == StrategicOption.LEVEL_UP_HERO:
+            # Any hero is valid (game checks food cost internally)
+            pass
+
+        elif option == StrategicOption.INITIATE_ESCAPE:
+            # Pick a usable hero for crystal pickup
+            hero_target = self._pick_usable_hero(state, hero_target)
+
+        return room_target, hero_target, entity_target
+
+    def _pick_usable_hero(self, state: GameStatePayload, preferred: int) -> int:
+        """Pick a usable hero index, preferring the given index."""
+        if preferred < len(state.heroes) and state.heroes[preferred].is_usable:
+            return preferred
+        # Fall back to first usable hero
+        for i, h in enumerate(state.heroes):
+            if h.is_usable:
+                return i
+        return preferred  # No usable hero — will fail but that's fine
+
+    def _pick_valid_door_target(self, state: GameStatePayload, hero_idx: int) -> int:
+        """Pick a valid door target room for OPEN_DOOR based on where the hero is."""
+        hero = state.heroes[hero_idx] if hero_idx < len(state.heroes) else None
+        if not hero:
+            return 0
+
+        hero_room = hero.room_index
+
+        # Option 1: closed_doors list — find one where hero is on one side
+        for door in state.closed_doors:
+            if door.room1_index == hero_room:
+                return door.room2_index
+            if door.room2_index == hero_room:
+                return door.room1_index
+
+        # Option 2: rooms not fully opened — find adjacent unexplored
+        for room in state.rooms:
+            if room.index == hero_room and not room.is_fully_opened:
+                explored_indices = {r.index for r in state.rooms}
+                for adj in room.adjacent_room_indices:
+                    if adj not in explored_indices:
+                        return adj
+
+        # Option 3: any closed door on the floor (hero may need to move first)
+        if state.closed_doors:
+            return state.closed_doors[0].room2_index
+
+        # Fallback: target_room_index=-1 tells the mod "open any door from hero's room"
+        return -1
+
+    # ------------------------------------------------------------------
     # Observation Building
     # ------------------------------------------------------------------
 
@@ -587,6 +754,7 @@ class RLEnv(gym.Env):
         # Hero features
         hero_features = np.full((MAX_HEROES, HERO_FEATURE_DIM), -1.0, dtype=np.float32)
         faction_map = {"Other": 0, "Guard": 1, "Prisoner": 2, "Native": 3}
+        weapon_class_map = {"Melee": 1, "Ranged": 2, "Support": 3}
         for i, hero in enumerate(state.heroes[:MAX_HEROES]):
             hp_ratio = hero.hp / hero.max_hp if hero.max_hp > 0 else 0.0
             is_busy = 1.0 if hero.name in self._hero_move_targets else 0.0
@@ -594,6 +762,17 @@ class RLEnv(gym.Env):
             has_repair = 1.0 if any(p.name == "Repair" for p in hero.passive_skills) else 0.0
             dist_to_exit_h = self._graph_distance(graph, hero.room_index, state.exit_room_index)
             dist_to_crystal_h = self._graph_distance(graph, hero.room_index, state.start_room_index)
+
+            # Skill tree derived features
+            weapon_class_id = float(weapon_class_map.get(hero.weapon_class or "", 0))
+            total_skills = float(len(hero.skill_tree)) if hero.skill_tree else 0.0
+            unlocked_skills = float(sum(1 for e in hero.skill_tree if e.is_unlocked)) if hero.skill_tree else 0.0
+            # Next unlock: smallest unlock_hero_level > current level (0 if none remain)
+            next_unlock = 0.0
+            if hero.skill_tree:
+                future = [e.unlock_hero_level for e in hero.skill_tree if not e.is_unlocked]
+                if future:
+                    next_unlock = float(min(future))
 
             hero_features[i] = [
                 float(hero.room_index),          # 0
@@ -609,11 +788,15 @@ class RLEnv(gym.Env):
                 float(len(hero.active_skills)),  # 10
                 float(len(hero.equipment)),      # 11
                 float(faction_map.get(hero.faction, 0)),  # 12
-                0.0,  # weapon_class_id (not yet exposed by mod) # 13
+                weapon_class_id,                 # 13
                 0.0,  # level_up_cost (approximate)               # 14
                 float(dist_to_exit_h),           # 15
                 float(dist_to_crystal_h),        # 16
                 float(hero.is_gathering_item),   # 17
+                total_skills,                    # 18: total skills in tree
+                unlocked_skills,                 # 19: skills unlocked so far
+                next_unlock,                     # 20: next hero level that grants a new skill
+                total_skills - unlocked_skills,  # 21: skills remaining to unlock
             ]
 
         # Mob features

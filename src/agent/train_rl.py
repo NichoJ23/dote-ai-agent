@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 
 import torch
+import numpy as np
 
 from curriculum import CurriculumManager
 from game_launcher import GameLauncher
@@ -143,6 +144,17 @@ class TrainingRunner:
             # Convert action to env format
             action = {k: v.item() for k, v in action_dict.items()}
 
+            # Log what the agent chose
+            from action_masking import StrategicOption, NUM_OPTIONS
+            mask_np = obs["action_mask"] if isinstance(obs["action_mask"], np.ndarray) else obs["action_mask"].numpy()
+            valid_options = [StrategicOption(i).name for i in range(NUM_OPTIONS) if mask_np[i]]
+            chosen = StrategicOption(action["option"])
+            logger.info(
+                f"Step {steps}: chose {chosen.name} | room={action['room_target']} "
+                f"hero={action['hero_target']} entity={action['entity_target']} | "
+                f"valid: [{', '.join(valid_options)}]"
+            )
+
             # Step environment
             next_obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
@@ -257,12 +269,14 @@ def main():
     args = parser.parse_args()
 
     # Setup logging
+    log_dir = Path(__file__).parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler("logs/rl_training.log", mode="a"),
+            logging.FileHandler(log_dir / "rl_training.log", mode="a"),
         ],
     )
 

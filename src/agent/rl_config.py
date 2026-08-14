@@ -51,6 +51,7 @@ class GuidelineRewardWeights:
     # GL-POWER: Power chain awareness
     power_chain_broken: float = -3.0
     power_chain_optimal: float = 1.0
+    depower_module_room_cost_scale: float = -0.1  # Penalty scaled by module cost when depowering a room with modules
     enabled_power: bool = True
 
     # GL-OPERATE: Operate bonus awareness

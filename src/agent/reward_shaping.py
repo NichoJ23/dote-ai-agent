@@ -248,6 +248,15 @@ class RewardShaper:
 
         # Detect if we just depowered a room
         if action and action.get("command") == "UNPOWER_ROOM" and result and result.get("success"):
+            room_idx = action.get("parameters", {}).get("room_index", -1)
+
+            # Penalty for depowering a room that has modules (waste of investment)
+            room = self._get_room(curr, room_idx)
+            if room:
+                module_cost = self._estimate_room_module_cost(room, curr)
+                if module_cost > 0:
+                    reward += self.gl.depower_module_room_cost_scale * module_cost
+
             # Check if depowering broke the power chain (disconnected rooms from crystal)
             prev_powered_reachable = self._powered_reachable_count(prev)
             curr_powered_reachable = self._powered_reachable_count(curr)
@@ -551,6 +560,20 @@ class RewardShaper:
             if room.index == room_index:
                 return room
         return None
+
+    def _estimate_room_module_cost(self, room: RoomState, state: GameStatePayload) -> float:
+        """Estimate total industry cost of modules in a room."""
+        cost_lookup: dict[str, float] = {}
+        for bp in state.buildable_blueprints:
+            cost_lookup[bp.name] = bp.industry_cost
+
+        default_cost = 15.0
+        total = 0.0
+        if room.major_module_name:
+            total += cost_lookup.get(room.major_module_name, default_cost)
+        for minor in room.minor_module_names:
+            total += cost_lookup.get(minor, default_cost)
+        return total
 
     def _find_hero(self, state: GameStatePayload, name: str) -> Optional[HeroState]:
         """Find a hero by name in a state."""

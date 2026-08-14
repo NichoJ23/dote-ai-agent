@@ -117,10 +117,21 @@ namespace DotEAgent
         private void Update()
         {
             // Enforce game speed every frame — use faster speed during Strategy, slower during Action
+            // Drop to 1x during transitions (level over, menu, etc.) to prevent crashes
+            // Also stay at 1x if no Python client is connected (prevents buffer overflow on reconnect)
             float currentTargetScale = targetTimeScale;
-            if (lastSentPhase == "Action")
+            if (!ipcBridge.IsStateConnected)
+            {
+                currentTargetScale = 1f;
+            }
+            else if (lastSentPhase == "Action")
             {
                 currentTargetScale = targetTimeScaleAction;
+            }
+            else if (!stateManager.IsBound || lastSentPhase == "")
+            {
+                // Not in dungeon (menu, loading, transition) — use safe 1x speed
+                currentTargetScale = 1f;
             }
             if (Time.timeScale != 0f && Time.timeScale != currentTargetScale)
             {

@@ -37,6 +37,8 @@ namespace DotEAgent
         private float targetTimeScale = 2f;
         private int trainingResWidth = 640;
         private int trainingResHeight = 480;
+        private int statePort = 5555;
+        private int actionPort = 5556;
 
         private void Awake()
         {
@@ -71,7 +73,7 @@ namespace DotEAgent
 
             stateManager = new StateManager();
 
-            ipcBridge = new IpcBridge();
+            ipcBridge = new IpcBridge(statePort, actionPort);
             ipcBridge.Start();
 
             actionRouter = new ActionRouter(ipcBridge);
@@ -390,6 +392,22 @@ namespace DotEAgent
                         if (int.TryParse(value, out parsed) && parsed > 0)
                         {
                             trainingResHeight = parsed;
+                        }
+                    }
+                    else if (key == "state_port")
+                    {
+                        int parsed;
+                        if (int.TryParse(value, out parsed) && parsed > 0)
+                        {
+                            statePort = parsed;
+                        }
+                    }
+                    else if (key == "action_port")
+                    {
+                        int parsed;
+                        if (int.TryParse(value, out parsed) && parsed > 0)
+                        {
+                            actionPort = parsed;
                         }
                     }
                 }

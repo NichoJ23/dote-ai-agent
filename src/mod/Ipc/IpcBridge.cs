@@ -18,11 +18,14 @@ namespace DotEAgent.Ipc
     /// </summary>
     public class IpcBridge : IIpcBridge
     {
-        private const int StatePort = 5555;
-        private const int ActionPort = 5556;
+        private const int DefaultStatePort = 5555;
+        private const int DefaultActionPort = 5556;
         private const int ReadBufferSize = 65536;
 
         private static ManualLogSource Log { get { return Plugin.Log; } }
+
+        private readonly int statePort;
+        private readonly int actionPort;
 
         private TcpListener stateListener;
         private TcpListener actionListener;
@@ -33,6 +36,12 @@ namespace DotEAgent.Ipc
 
         private byte[] readBuffer = new byte[ReadBufferSize];
         private bool disposed;
+
+        public IpcBridge(int statePort = DefaultStatePort, int actionPort = DefaultActionPort)
+        {
+            this.statePort = statePort;
+            this.actionPort = actionPort;
+        }
 
         public bool IsStateConnected
         {
@@ -46,13 +55,13 @@ namespace DotEAgent.Ipc
 
         public void Start()
         {
-            stateListener = new TcpListener(IPAddress.Loopback, StatePort);
+            stateListener = new TcpListener(IPAddress.Loopback, statePort);
             stateListener.Start();
-            Log.LogInfo("IPC: State listener started on port " + StatePort);
+            Log.LogInfo("IPC: State listener started on port " + statePort);
 
-            actionListener = new TcpListener(IPAddress.Loopback, ActionPort);
+            actionListener = new TcpListener(IPAddress.Loopback, actionPort);
             actionListener.Start();
-            Log.LogInfo("IPC: Action listener started on port " + ActionPort);
+            Log.LogInfo("IPC: Action listener started on port " + actionPort);
         }
 
         /// <summary>

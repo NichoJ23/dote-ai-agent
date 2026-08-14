@@ -37,6 +37,8 @@ class CoreRewardWeights:
     research_completed: float = 4.0
     item_equipped: float = 1.0
     dust_collected_per_unit: float = 0.5
+    dust_lost_per_unit: float = -1.0  # Penalty when mobs hit crystal and dust drops
+    heal_hero_penalty: float = -2.0  # Healing costs food; should only be used when necessary
     floor_progress_scale: float = 100.0  # Multiplied by (floor / 12)
     production_per_turn_scale: float = 0.1  # Multiplied by (ind + food + sci per turn)
 

@@ -153,12 +153,10 @@ class RewardShaper:
         # Module destroyed by mobs (not sold by agent)
         if modules_built < 0:
             was_sell_action = (action and action.get("command") == "SELL_MODULE" and result and result.get("success"))
-            if not was_sell_action:
-                # Modules were destroyed by enemies — penalize by estimated cost
-                modules_lost = abs(modules_built)
-                # Estimate cost: find which modules disappeared
-                destroyed_cost = self._estimate_destroyed_module_cost(prev, curr)
-                reward += self.core.module_destroyed_cost_scale * destroyed_cost
+            # Penalty applies regardless of whether it was sold or destroyed by mobs
+            # (selling is just as wasteful as losing it — the industry is gone either way)
+            destroyed_cost = self._estimate_destroyed_module_cost(prev, curr)
+            reward += self.core.module_destroyed_cost_scale * destroyed_cost
 
         # Research completed
         prev_blueprints = len(prev.researchable_blueprints)
@@ -170,12 +168,21 @@ class RewardShaper:
         if action and action.get("command") == "EQUIP_ITEM" and result and result.get("success"):
             reward += self.core.item_equipped
 
-        # Dust collected
+        # Heal hero penalty (food is valuable, healing should be a last resort)
+        if action and action.get("command") == "HEAL_HERO" and result and result.get("success"):
+            reward += self.core.heal_hero_penalty
+
+        # Dust collected / lost
         prev_dust = prev.resources.dust if prev.resources else 0
         curr_dust = curr.resources.dust if curr.resources else 0
         dust_delta = curr_dust - prev_dust
         if dust_delta > 0:
             reward += self.core.dust_collected_per_unit * dust_delta
+        elif dust_delta < 0:
+            # Dust lost (mobs hitting crystal) — don't penalize if agent spent dust on powering
+            was_power_action = (action and action.get("command") == "POWER_ROOM" and result and result.get("success"))
+            if not was_power_action:
+                reward += self.core.dust_lost_per_unit * abs(dust_delta)
 
         # Per-turn production reward (only on turn change / door open)
         # Fires when turn advances (new rooms = door opened, or turn counter changed)

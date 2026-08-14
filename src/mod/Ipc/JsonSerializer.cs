@@ -68,6 +68,10 @@ namespace DotEAgent.Ipc
             sb.Append(",\"researchable_blueprints\":");
             SerializeResearchBlueprintList(sb, state.ResearchableBlueprints);
 
+            // Buildable blueprints
+            sb.Append(",\"buildable_blueprints\":");
+            SerializeBuildableBlueprintList(sb, state.BuildableBlueprints);
+
             sb.Append("}");
             return sb.ToString();
         }
@@ -202,6 +206,13 @@ namespace DotEAgent.Ipc
             AppendBool(sb, "is_gathering_item", h.IsGatheringItem, false);
             AppendBool(sb, "is_recruitable", h.IsRecruitable, false);
             AppendBool(sb, "is_recruited", h.IsRecruited, false);
+
+            // Combat stats
+            AppendFloat(sb, "attack", h.Attack, false);
+            AppendFloat(sb, "defense", h.Defense, false);
+            AppendFloat(sb, "speed", h.Speed, false);
+            AppendFloat(sb, "wit", h.Wit, false);
+            AppendFloat(sb, "attack_cooldown", h.AttackCooldown, false);
 
             // Active skills
             sb.Append(",\"active_skills\":");
@@ -475,6 +486,28 @@ namespace DotEAgent.Ipc
                 AppendJsonString(sb, list[i].Name);
                 sb.Append(",\"science_cost\":");
                 sb.Append(list[i].ScienceCost.ToString("G"));
+                sb.Append("}");
+            }
+            sb.Append("]");
+        }
+
+        private static void SerializeBuildableBlueprintList(StringBuilder sb, List<BuildableBlueprintData> list)
+        {
+            if (list == null)
+            {
+                sb.Append("[]");
+                return;
+            }
+            sb.Append("[");
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (i > 0) sb.Append(",");
+                sb.Append("{");
+                AppendString(sb, "name", list[i].Name, true);
+                AppendString(sb, "module_name", list[i].ModuleName, false);
+                AppendString(sb, "category", list[i].Category, false);
+                AppendInt(sb, "level", list[i].Level, false);
+                AppendFloat(sb, "industry_cost", list[i].IndustryCost, false);
                 sb.Append("}");
             }
             sb.Append("]");

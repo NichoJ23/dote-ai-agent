@@ -112,6 +112,14 @@ class HeroState(BaseModel):
     is_gathering_item: bool = False  # Hero is mid-pickup animation; moving cancels it
     is_recruitable: bool = False
     is_recruited: bool = True
+
+    # Combat stats (computed from equipment, level, passives)
+    attack: float = 0.0           # AttackPower
+    defense: float = 0.0          # Defense
+    speed: float = 0.0            # MoveSpeed
+    wit: float = 0.0              # Wit (module operation effectiveness)
+    attack_cooldown: float = 0.0  # Time between attacks
+
     active_skills: list[ActiveSkill] = Field(default_factory=list)
     passive_skills: list[PassiveSkill] = Field(default_factory=list)
     equipment: list[EquipmentSlot] = Field(default_factory=list)
@@ -165,6 +173,15 @@ class ResearchBlueprint(BaseModel):
     science_cost: float = 0.0
 
 
+class BuildableBlueprint(BaseModel):
+    """An unlocked module blueprint that can be built."""
+    name: str                     # Blueprint name (e.g., "MajorModule_Major0002_LVL1")
+    module_name: str = ""         # Module config name (e.g., "Major0002")
+    category: str = ""            # "MajorModule", "MinorModule_Support", "MinorModule_Offense", "MinorModule_Debuff"
+    level: int = 1                # Module level tier
+    industry_cost: float = 0.0    # Current industry cost to build
+
+
 # --- Top-level payload ---
 
 
@@ -190,6 +207,7 @@ class GameStatePayload(BaseModel):
     backpack_items: list[BackpackItem] = Field(default_factory=list)
     shared_inventory_items: list[BackpackItem] = Field(default_factory=list)
     researchable_blueprints: list[ResearchBlueprint] = Field(default_factory=list)
+    buildable_blueprints: list[BuildableBlueprint] = Field(default_factory=list)
     time_scale: float = 1.0
 
     @field_validator("researchable_blueprints", mode="before")

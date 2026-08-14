@@ -107,6 +107,7 @@ namespace DotEAgent
             payload.DroppedItems = items ?? new List<DroppedItemData>();
             ExtractInventories(payload);
             ExtractResearchableBlueprints(payload);
+            ExtractBuildableBlueprints(payload);
 
             return payload;
         }
@@ -178,6 +179,57 @@ namespace DotEAgent
                     data.Name = bps[i].Name.ToString();
                     data.ScienceCost = bps[i].ResearchScienceCost;
                     payload.ResearchableBlueprints.Add(data);
+                }
+            }
+        }
+
+        private void ExtractBuildableBlueprints(GameStatePayload payload)
+        {
+            payload.BuildableBlueprints = new List<BuildableBlueprintData>();
+
+            Dungeon dungeon = SingletonManager.Get<Dungeon>(false);
+            if (dungeon == null)
+                return;
+
+            // Iterate all module categories to get unlocked blueprints
+            ModuleCategory[] categories = new ModuleCategory[]
+            {
+                ModuleCategory.MajorModule,
+                ModuleCategory.MinorModule_Support,
+                ModuleCategory.MinorModule_Offense,
+                ModuleCategory.MinorModule_Debuff,
+            };
+
+            for (int c = 0; c < categories.Length; c++)
+            {
+                List<BluePrintConfig> unlocked = dungeon.GetCategoryUnlockedBluePrints(categories[c]);
+                if (unlocked == null)
+                    continue;
+
+                for (int i = 0; i < unlocked.Count; i++)
+                {
+                    BluePrintConfig bp = unlocked[i];
+                    if (bp == null)
+                        continue;
+
+                    var data = new BuildableBlueprintData();
+                    data.Name = bp.Name.ToString();
+                    data.ModuleName = bp.ModuleName ?? "";
+                    data.Category = categories[c].ToString();
+                    data.Level = bp.ModuleLevel;
+
+                    // Get actual industry cost (includes increment based on existing modules)
+                    ModuleConfig modConfig = bp.GetModuleConfig();
+                    if (modConfig != null)
+                    {
+                        data.IndustryCost = modConfig.GetIndustryCost();
+                    }
+                    else
+                    {
+                        data.IndustryCost = 0f;
+                    }
+
+                    payload.BuildableBlueprints.Add(data);
                 }
             }
         }

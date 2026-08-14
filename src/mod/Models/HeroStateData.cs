@@ -16,6 +16,14 @@ namespace DotEAgent.Models
         public bool IsGatheringItem;      // Currently in item pickup animation (do NOT move hero)
         public bool IsRecruitable;
         public bool IsRecruited;
+
+        // Combat stats (computed from SimulationProperties via equipment, level, passives)
+        public float Attack;              // AttackPower
+        public float Defense;             // Defense
+        public float Speed;               // MoveSpeed
+        public float Wit;                 // Wit (module operation effectiveness)
+        public float AttackCooldown;      // Time between attacks
+
         public List<ActiveSkillData> ActiveSkills;
         public List<PassiveSkillData> PassiveSkills;
         public List<EquipmentSlotData> Equipment;

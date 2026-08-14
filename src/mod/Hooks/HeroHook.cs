@@ -101,6 +101,20 @@ namespace DotEAgent.Hooks
             data.IsRecruitable = hero.IsRecruitable;
             data.IsRecruited = hero.IsRecruited;
 
+            // Combat stats from simulation properties
+            try
+            {
+                data.Attack = hero.GetSimPropertyValue(SimulationProperties.AttackPower);
+                data.Defense = hero.GetSimPropertyValue(SimulationProperties.Defense);
+                data.Speed = hero.GetSimPropertyValue(SimulationProperties.MoveSpeed);
+                data.Wit = hero.GetSimPropertyValue(SimulationProperties.Wit);
+                data.AttackCooldown = hero.GetSimPropertyValue(SimulationProperties.AttackCooldown);
+            }
+            catch (System.Exception)
+            {
+                // Simulation may not be loaded yet for this hero
+            }
+
             // Active skills
             data.ActiveSkills = new List<ActiveSkillData>();
             List<ActiveSkill> actives = hero.FilteredActiveSkills;

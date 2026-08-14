@@ -373,8 +373,120 @@ foreach (Mob mob in mobs) {
 - [x] Health system documented
 - [x] Game phase/turn documented
 - [x] RoomElement (entity→room tracking) documented
-- [ ] Merchant (NPCMerchant) — needs deeper investigation
-- [ ] Equipment/Items — needs deeper investigation (EquipmentSlot, InventoryItem)
+- [x] Merchant (NPCMerchant) — documented, weapon type extraction implemented
+- [x] Equipment/Items — documented (EquipmentSlot, InventoryItem, ItemHeroConfig)
+- [x] ActiveSkill/PassiveSkill internals — documented with skill tree extraction
+- [x] HeroConfig (faction, weapon class, archetype) — documented
 - [ ] Research system — needs deeper investigation
-- [ ] ActiveSkill/PassiveSkill internals — needs deeper investigation
-- [ ] HeroConfig (faction, speed stats) — needs deeper investigation
+
+---
+
+## 13. Weapon Classes & Attack Types
+
+### Hero Weapon Class
+
+Each hero has an innate attack type defined in their `HeroConfig`:
+
+```csharp
+hero.Config.AttackType  // string, e.g., "Melee", "Ranged"
+hero.Config.Archetype   // string, hero archetype
+```
+
+This is the hero's **innate** combat style — independent of equipped weapons.
+
+### Item Weapon Type / Attack Type
+
+Equipment items (weapons specifically) have category and attack type info via `ItemHeroConfig`:
+
+```csharp
+InventoryItem item = slot.EquippedItem;
+ItemHeroConfig cfg = item.ItemConfig;
+
+// Category (e.g., "ItemHero_Weapon", "ItemHero_Armor", "ItemHero_Accessory")
+cfg.CategoryParameters.CategoryName
+
+// Weapon sub-type (specific weapon class within the category)
+cfg.CategoryParameters.TypeName
+
+// Attack type this weapon uses
+cfg.AttackTypeConfigName
+```
+
+**Access patterns:**
+- **Equipped items:** `hero.EquipmentSlots[i].EquippedItem.ItemConfig`
+- **Merchant items:** `merchant.CurrentInventory.Items[i].ItemConfig`
+- **Dropped items:** Look up via `Databases.GetDatabase<ItemConfig>().GetValue(item.ItemName)`
+- **Backpack items:** Same as merchant (they're `InventoryItem` instances)
+
+---
+
+## 14. Skill Tree & Unlock Levels
+
+### HeroLevelConfig — Defines what unlocks at each level
+
+Heroes have a private `List<HeroLevelConfig> levelConfigs` field (accessed via reflection). Each entry maps to a hero level (index 0 = level 1) and contains:
+
+```csharp
+public class HeroLevelConfig : IDatatableElement
+{
+    public StaticString Name { get; }     // e.g., "Hero_MaxOKane_LVL2"
+    public float FoodCost { get; }        // Food cost to reach this level
+    public string[] Skills { get; }       // Skills unlocked at this level
+    public bool HasPassiveSkills;         // Computed: any skill starts with "Skill_P"
+    public bool HasActiveSkills;          // Computed: any skill starts with "Skill_A"
+}
+```
+
+**Naming convention:** Level config names follow `Hero_{HeroName}_LVL{N}` pattern. The hero loads all its level configs during `Init()` by querying `Databases.GetDatabase<HeroLevelConfig>()` until no more are found.
+
+### SkillConfig — Skill metadata
+
+```csharp
+public class SkillConfig : IDatatableElement
+{
+    public StaticString Name { get; }        // Full name, e.g., "Skill_A_MaxOKane_LVL2"
+    public string BaseName { get; }          // Parsed: "Skill_A_MaxOKane" (without _LVL suffix)
+    public int Level { get; }                // Parsed: skill tier (1, 2, 3...)
+    public bool IsActive { get; }            // true = active skill, false = passive
+    public float Duration { get; }           // Effect duration (active skills)
+    public int CooldownTurnsCount { get; }   // Cooldown in turns
+    public float Damages { get; }            // Flat damage
+    public float DamagesRatio { get; }       // % HP damage
+    public float DamagesMaxValue { get; }    // Damage cap
+    public bool DeactivateOnNewTurn { get; } // Ends on next turn
+}
+```
+
+**Name parsing:** `SkillConfig.Init()` splits the name at `_LVL` to derive `BaseName` and `Level`. If no `_LVL` suffix exists, `Level = 1` and `BaseName = Name`.
+
+### Skill Filtering
+
+Heroes maintain two lists:
+- `hero.FilteredActiveSkills` — Only the **highest level** of each base active skill
+- `hero.FilteredPassiveSkills` — Only the **highest level** of each base passive skill
+
+When a hero levels up and gains a new skill tier (e.g., `Skill_A_MaxOKane_LVL2`), it replaces the lower tier in the filtered list. The filtering logic compares `BaseName` and keeps the one with higher `Config.Level`.
+
+### Extraction Strategy (implemented in HeroHook.cs)
+
+```csharp
+// Access level configs via reflection
+FieldInfo levelConfigsField = typeof(Hero).GetField("levelConfigs",
+    BindingFlags.NonPublic | BindingFlags.Instance);
+List<HeroLevelConfig> configs = levelConfigsField.GetValue(hero) as List<HeroLevelConfig>;
+
+// Build full skill tree
+IDatabase<SkillConfig> skillDb = Databases.GetDatabase<SkillConfig>(false);
+for (int lvl = 0; lvl < configs.Count; lvl++)
+{
+    int heroLevel = lvl + 1;
+    foreach (string skillName in configs[lvl].Skills)
+    {
+        SkillConfig cfg = skillDb.GetValue(skillName);
+        cfg.Init();
+        // cfg.BaseName, cfg.Level, cfg.IsActive, heroLevel → unlock info
+    }
+}
+```
+
+This gives the agent full visibility into every skill a hero will ever unlock, at what level, and whether it's already available — enabling informed leveling priority decisions.

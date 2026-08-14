@@ -6,6 +6,7 @@ namespace DotEAgent.Hooks
 {
     /// <summary>
     /// Extracts merchant NPCs and their inventories from opened rooms.
+    /// Now includes weapon type/attack type for weapon items in inventory.
     /// </summary>
     public class MerchantHook : IStateHook
     {
@@ -73,6 +74,27 @@ namespace DotEAgent.Hooks
                                 ? item.RarityCfg.Name.ToString()
                                 : "Common";
                             itemData.Cost = item.GetCost(merchant);
+
+                            // Extract category and weapon class info
+                            if (item.ItemConfig != null)
+                            {
+                                ItemHeroConfig cfg = item.ItemConfig;
+                                if (cfg.CategoryParameters != null)
+                                {
+                                    itemData.Category = cfg.CategoryParameters.CategoryName != null
+                                        ? cfg.CategoryParameters.CategoryName.ToString()
+                                        : null;
+                                    if (cfg.CategoryParameters.TypeName != null)
+                                    {
+                                        itemData.WeaponType = cfg.CategoryParameters.TypeName.ToString();
+                                    }
+                                }
+                                if (cfg.AttackTypeConfigName != null)
+                                {
+                                    itemData.AttackType = cfg.AttackTypeConfigName.ToString();
+                                }
+                            }
+
                             data.Items.Add(itemData);
                         }
                     }

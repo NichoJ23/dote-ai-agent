@@ -85,6 +85,8 @@ class ClosedDoor(BaseModel):
 
 class ActiveSkill(BaseModel):
     name: str
+    skill_level: int = 0         # Skill tier (1, 2, 3...)
+    unlock_level: int = 0        # Hero level at which this skill unlocks (0 = present from start)
     cooldown_turns: int = 0
     remaining_cooldown: int = 0
     is_activated: bool = False
@@ -92,16 +94,31 @@ class ActiveSkill(BaseModel):
 
 class PassiveSkill(BaseModel):
     name: str
+    skill_level: int = 0         # Skill tier (1, 2, 3...)
+    unlock_level: int = 0        # Hero level at which this passive unlocks (0 = present from start)
 
 
 class EquipmentSlot(BaseModel):
     slot_category: str  # "Weapon", "Armor", "Accessory", or game-specific like "ItemHero#1"
     item_name: Optional[str] = None
+    weapon_type: Optional[str] = None   # Weapon sub-type (null if not a weapon or empty)
+    attack_type: Optional[str] = None   # Attack type string (null if not a weapon or empty)
+
+
+class SkillTreeEntry(BaseModel):
+    """An entry in a hero's full skill tree showing what they can unlock."""
+    skill_name: str
+    base_name: str = ""
+    is_active: bool = False      # True = active skill, False = passive
+    skill_level: int = 1         # Tier of the skill
+    unlock_hero_level: int = 0   # Hero level at which this becomes available
+    is_unlocked: bool = False    # Whether the hero has reached this level already
 
 
 class HeroState(BaseModel):
     name: str
     faction: str = ""
+    weapon_class: Optional[str] = None  # Hero's innate attack type (e.g., "Melee", "Ranged")
     room_index: int = 0
     hp: float = 0.0
     max_hp: float = 1.0
@@ -124,6 +141,7 @@ class HeroState(BaseModel):
     active_skills: list[ActiveSkill] = Field(default_factory=list)
     passive_skills: list[PassiveSkill] = Field(default_factory=list)
     equipment: list[EquipmentSlot] = Field(default_factory=list)
+    skill_tree: list[SkillTreeEntry] = Field(default_factory=list)
 
 
 class MobState(BaseModel):
@@ -138,6 +156,9 @@ class MerchantItem(BaseModel):
     name: str
     rarity: str = ""
     cost: float = 0.0
+    category: Optional[str] = None       # Slot category (e.g., "Weapon", "Armor", "Accessory")
+    weapon_type: Optional[str] = None    # Weapon sub-type (null if not a weapon)
+    attack_type: Optional[str] = None    # Attack type (null if not a weapon)
 
 
 class MerchantState(BaseModel):
@@ -149,11 +170,14 @@ class MerchantState(BaseModel):
 class RecruitableHero(BaseModel):
     name: str
     faction: str = ""
+    weapon_class: Optional[str] = None  # Hero's innate attack type
     room_index: int = 0
     hp: float = 0.0
     max_hp: float = 1.0
     recruit_cost_food: float = 0.0
+    active_skill_names: list[str] = Field(default_factory=list)
     passive_skill_names: list[str] = Field(default_factory=list)
+    skill_tree: list[SkillTreeEntry] = Field(default_factory=list)
 
 
 class DroppedItem(BaseModel):
@@ -161,12 +185,17 @@ class DroppedItem(BaseModel):
     name: Optional[str] = None
     room_index: int = 0
     dust_amount: float = 0.0
+    category: Optional[str] = None       # Slot category for equipment
+    weapon_type: Optional[str] = None    # Weapon sub-type (null if not a weapon)
+    attack_type: Optional[str] = None    # Attack type (null if not a weapon)
 
 
 class BackpackItem(BaseModel):
     name: str
     rarity: str = ""
     category: str = ""  # Slot category this item fits
+    weapon_type: Optional[str] = None    # Weapon sub-type (null if not a weapon)
+    attack_type: Optional[str] = None    # Attack type (null if not a weapon)
 
 
 class ResearchBlueprint(BaseModel):

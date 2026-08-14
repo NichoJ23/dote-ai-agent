@@ -969,11 +969,13 @@ The C# `JsonSerializer` produces snake_case JSON with these key differences from
 |---|---|---|
 | `id` (unique string) | — (use `name` as identifier) | Heroes identified by name |
 | `room_id` | `room_index` | |
-| `hp`, `max_hp`, `attack`, `defense`, `speed` | `hp`, `max_hp` only (+ `level`) | No attack/defense/speed stats exposed |
-| `abilities` (with cooldown/unlock) | `active_skills` [{name, cooldown_turns, remaining_cooldown, is_activated}] | Different structure |
-| `passives` (with unlock status) | `passive_skills` [{name}] | No unlock tracking — all listed = unlocked |
-| `equipment` [{slot_type, item_id, item_name}] | `equipment` [{slot_category, item_name}] | No item_id, slot uses game categories |
+| `hp`, `max_hp`, `attack`, `defense`, `speed` | `hp`, `max_hp`, `attack`, `defense`, `speed`, `wit`, `attack_cooldown` | Full combat stats from SimulationProperties |
+| `abilities` (with cooldown/unlock) | `active_skills` [{name, skill_level, unlock_level, cooldown_turns, remaining_cooldown, is_activated}] | Includes tier and unlock info |
+| `passives` (with unlock status) | `passive_skills` [{name, skill_level, unlock_level}] | Includes tier and level at which it was unlocked |
+| `equipment` [{slot_type, item_id, item_name}] | `equipment` [{slot_category, item_name, weapon_type, attack_type}] | Weapon classification on items |
 | `is_carrying_crystal` | `has_crystal` | |
+| — | `weapon_class` | Hero's innate attack type from HeroConfig.AttackType |
+| — | `skill_tree` [{skill_name, base_name, is_active, skill_level, unlock_hero_level, is_unlocked}] | Full skill progression tree |
 | — | `operating_module_name` | Which module being operated |
 | — | `is_recruitable`, `is_recruited` | Recruitment state |
 
@@ -990,17 +992,17 @@ The C# `JsonSerializer` produces snake_case JSON with these key differences from
 |---|---|---|
 | `id` | — | |
 | `room_id` | `room_index` | |
-| `inventory` [{item_id, item_name, slot_type, cost_dust, stats}] | `items` [{name, rarity, cost}] + `currency_type` | Simpler structure |
+| `inventory` [{item_id, item_name, slot_type, cost_dust, stats}] | `items` [{name, rarity, cost, category, weapon_type, attack_type}] + `currency_type` | Includes weapon classification |
 
 **Recruitable Heroes:**
 | Original | Actual | Notes |
 |---|---|---|
-| Full hero stats + passives objects | `name`, `faction`, `room_index`, `hp`, `max_hp`, `passive_skill_names` (string list) | Minimal data |
+| Full hero stats + passives objects | `name`, `faction`, `weapon_class`, `room_index`, `hp`, `max_hp`, `recruit_cost_food`, `active_skill_names`, `passive_skill_names`, `skill_tree` | Full ability tree for evaluation |
 
 **Dropped Items:**
 | Original | Actual | Notes |
 |---|---|---|
-| `id`, `type`, `room_id`, etc. | `type` ("Dust"/"Equipment"/"Chest"), `name`, `room_index`, `dust_amount` | Simpler |
+| `id`, `type`, `room_id`, etc. | `type` ("Dust"/"Equipment"/"Chest"), `name`, `room_index`, `dust_amount`, `category`, `weapon_type`, `attack_type` | Includes weapon classification for equipment |
 
 ### 8.2 IPC Protocol
 
@@ -1203,13 +1205,15 @@ observation_space = Dict({
     #   distance_to_exit
 
     # --- Hero Features ---
-    "hero_features": Box(-1, 1000, (MAX_HEROES, 18), float32),
+    "hero_features": Box(-1, 1000, (MAX_HEROES, 22), float32),
     # Per hero:
     #   room_index, hp_ratio, level, has_crystal, is_operating,
     #   is_busy, is_usable, num_passive_skills, has_operate_passive,
     #   has_repair_passive, num_active_skills, num_equipment,
     #   faction_id, weapon_class_id, level_up_cost,
-    #   distance_to_exit, distance_to_crystal, is_gathering_item
+    #   distance_to_exit, distance_to_crystal, is_gathering_item,
+    #   total_skills_in_tree, unlocked_skills, next_unlock_level,
+    #   skills_remaining_to_unlock
 
     # --- Mob Features (variable count, padded) ---
     "mob_features": Box(-1, 1000, (MAX_MOBS, 6), float32),

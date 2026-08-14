@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Amplitude.Unity.Framework;
 using DotEAgent.Models;
 using UnityEngine;
 
@@ -6,6 +7,7 @@ namespace DotEAgent.Hooks
 {
     /// <summary>
     /// Extracts dropped items on the floor: dust piles from killed mobs and equipment items.
+    /// Now includes weapon type/attack type for weapon items.
     /// </summary>
     public class ItemHook : IStateHook
     {
@@ -72,6 +74,37 @@ namespace DotEAgent.Hooks
                     else
                     {
                         data.RoomIndex = -1;
+                    }
+
+                    // Look up ItemHeroConfig from the database using the item's config name
+                    if (item.ItemName != null)
+                    {
+                        IDatabase<ItemConfig> itemDb = Databases.GetDatabase<ItemConfig>(false);
+                        if (itemDb != null)
+                        {
+                            ItemConfig itemCfgBase;
+                            if (itemDb.TryGetValue(item.ItemName, out itemCfgBase))
+                            {
+                                ItemHeroConfig cfg = itemCfgBase as ItemHeroConfig;
+                                if (cfg != null)
+                                {
+                                    if (cfg.CategoryParameters != null)
+                                    {
+                                        data.Category = cfg.CategoryParameters.CategoryName != null
+                                            ? cfg.CategoryParameters.CategoryName.ToString()
+                                            : null;
+                                        if (cfg.CategoryParameters.TypeName != null)
+                                        {
+                                            data.WeaponType = cfg.CategoryParameters.TypeName.ToString();
+                                        }
+                                    }
+                                    if (cfg.AttackTypeConfigName != null)
+                                    {
+                                        data.AttackType = cfg.AttackTypeConfigName.ToString();
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     result.Add(data);

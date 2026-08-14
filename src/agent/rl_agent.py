@@ -122,6 +122,10 @@ class RLAgent(BaseAgent):
         mask = self._mask_computer.compute_mask(state)
         mask_tensor = torch.tensor(mask, dtype=torch.int8, device=self.device).unsqueeze(0)
 
+        # Log valid options
+        valid_options = [StrategicOption(i).name for i in range(NUM_OPTIONS) if mask[i]]
+        logger.debug(f"Valid options: {valid_options}")
+
         with torch.no_grad():
             action_dict, _, _ = self.policy_net.act(obs, mask_tensor, deterministic=self.deterministic)
 
@@ -129,6 +133,8 @@ class RLAgent(BaseAgent):
         room_target = action_dict["room_target"].item()
         hero_target = action_dict["hero_target"].item()
         entity_target = action_dict["entity_target"].item()
+
+        logger.info(f"Chose: {option.name} | room={room_target} hero={hero_target} entity={entity_target} | from {len(valid_options)} options: [{', '.join(valid_options)}]")
 
         # Translate to game command (reuse rl_env logic inline)
         return self._translate_strategic_action(state, option, room_target, hero_target, entity_target)

@@ -198,6 +198,7 @@ namespace DotEAgent.Ipc
             sb.Append("{");
             AppendString(sb, "name", h.Name, true);
             AppendString(sb, "faction", h.Faction, false);
+            AppendStringOrNull(sb, "weapon_class", h.WeaponClass, false);
             AppendInt(sb, "room_index", h.RoomIndex, false);
             AppendFloat(sb, "hp", h.Hp, false);
             AppendFloat(sb, "max_hp", h.MaxHp, false);
@@ -229,6 +230,10 @@ namespace DotEAgent.Ipc
             sb.Append(",\"equipment\":");
             SerializeEquipmentList(sb, h.Equipment);
 
+            // Skill tree
+            sb.Append(",\"skill_tree\":");
+            SerializeSkillTreeList(sb, h.SkillTree);
+
             sb.Append("}");
         }
 
@@ -246,6 +251,8 @@ namespace DotEAgent.Ipc
                 ActiveSkillData s = skills[i];
                 sb.Append("{");
                 AppendString(sb, "name", s.Name, true);
+                AppendInt(sb, "skill_level", s.SkillLevel, false);
+                AppendInt(sb, "unlock_level", s.UnlockLevel, false);
                 AppendInt(sb, "cooldown_turns", s.CooldownTurns, false);
                 AppendInt(sb, "remaining_cooldown", s.RemainingCooldown, false);
                 AppendBool(sb, "is_activated", s.IsActivated, false);
@@ -265,8 +272,11 @@ namespace DotEAgent.Ipc
             for (int i = 0; i < skills.Count; i++)
             {
                 if (i > 0) sb.Append(",");
+                PassiveSkillData s = skills[i];
                 sb.Append("{");
-                AppendString(sb, "name", skills[i].Name, true);
+                AppendString(sb, "name", s.Name, true);
+                AppendInt(sb, "skill_level", s.SkillLevel, false);
+                AppendInt(sb, "unlock_level", s.UnlockLevel, false);
                 sb.Append("}");
             }
             sb.Append("]");
@@ -283,9 +293,36 @@ namespace DotEAgent.Ipc
             for (int i = 0; i < equip.Count; i++)
             {
                 if (i > 0) sb.Append(",");
+                EquipmentSlotData e = equip[i];
                 sb.Append("{");
-                AppendString(sb, "slot_category", equip[i].SlotCategory, true);
-                AppendStringOrNull(sb, "item_name", equip[i].ItemName, false);
+                AppendString(sb, "slot_category", e.SlotCategory, true);
+                AppendStringOrNull(sb, "item_name", e.ItemName, false);
+                AppendStringOrNull(sb, "weapon_type", e.WeaponType, false);
+                AppendStringOrNull(sb, "attack_type", e.AttackType, false);
+                sb.Append("}");
+            }
+            sb.Append("]");
+        }
+
+        private static void SerializeSkillTreeList(StringBuilder sb, List<SkillTreeEntry> tree)
+        {
+            if (tree == null)
+            {
+                sb.Append("[]");
+                return;
+            }
+            sb.Append("[");
+            for (int i = 0; i < tree.Count; i++)
+            {
+                if (i > 0) sb.Append(",");
+                SkillTreeEntry e = tree[i];
+                sb.Append("{");
+                AppendString(sb, "skill_name", e.SkillName, true);
+                AppendString(sb, "base_name", e.BaseName, false);
+                AppendBool(sb, "is_active", e.IsActive, false);
+                AppendInt(sb, "skill_level", e.SkillLevel, false);
+                AppendInt(sb, "unlock_hero_level", e.UnlockHeroLevel, false);
+                AppendBool(sb, "is_unlocked", e.IsUnlocked, false);
                 sb.Append("}");
             }
             sb.Append("]");
@@ -358,6 +395,9 @@ namespace DotEAgent.Ipc
                 AppendString(sb, "name", it.Name, true);
                 AppendString(sb, "rarity", it.Rarity, false);
                 AppendFloat(sb, "cost", it.Cost, false);
+                AppendStringOrNull(sb, "category", it.Category, false);
+                AppendStringOrNull(sb, "weapon_type", it.WeaponType, false);
+                AppendStringOrNull(sb, "attack_type", it.AttackType, false);
                 sb.Append("}");
             }
             sb.Append("]");
@@ -380,13 +420,20 @@ namespace DotEAgent.Ipc
                 sb.Append("{");
                 AppendString(sb, "name", r.Name, true);
                 AppendString(sb, "faction", r.Faction, false);
+                AppendStringOrNull(sb, "weapon_class", r.WeaponClass, false);
                 AppendInt(sb, "room_index", r.RoomIndex, false);
                 AppendFloat(sb, "hp", r.Hp, false);
                 AppendFloat(sb, "max_hp", r.MaxHp, false);
                 AppendFloat(sb, "recruit_cost_food", r.RecruitCostFood, false);
 
+                sb.Append(",\"active_skill_names\":");
+                SerializeStringList(sb, r.ActiveSkillNames);
+
                 sb.Append(",\"passive_skill_names\":");
                 SerializeStringList(sb, r.PassiveSkillNames);
+
+                sb.Append(",\"skill_tree\":");
+                SerializeSkillTreeList(sb, r.SkillTree);
 
                 sb.Append("}");
             }
@@ -412,6 +459,9 @@ namespace DotEAgent.Ipc
                 AppendStringOrNull(sb, "name", it.Name, false);
                 AppendInt(sb, "room_index", it.RoomIndex, false);
                 AppendFloat(sb, "dust_amount", it.DustAmount, false);
+                AppendStringOrNull(sb, "category", it.Category, false);
+                AppendStringOrNull(sb, "weapon_type", it.WeaponType, false);
+                AppendStringOrNull(sb, "attack_type", it.AttackType, false);
                 sb.Append("}");
             }
             sb.Append("]");
@@ -435,6 +485,8 @@ namespace DotEAgent.Ipc
                 AppendString(sb, "name", it.Name, true);
                 AppendString(sb, "rarity", it.Rarity, false);
                 AppendString(sb, "category", it.Category, false);
+                AppendStringOrNull(sb, "weapon_type", it.WeaponType, false);
+                AppendStringOrNull(sb, "attack_type", it.AttackType, false);
                 sb.Append("}");
             }
             sb.Append("]");

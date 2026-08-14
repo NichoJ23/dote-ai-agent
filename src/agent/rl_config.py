@@ -37,6 +37,7 @@ class CoreRewardWeights:
     item_equipped: float = 1.0
     dust_collected_per_unit: float = 0.5
     floor_progress_scale: float = 100.0  # Multiplied by (floor / 12)
+    production_per_turn_scale: float = 0.1  # Multiplied by (ind + food + sci per turn)
 
 
 @dataclass
@@ -71,8 +72,8 @@ class GuidelineRewardWeights:
     enabled_equipment: bool = True
 
     # GL-RECRUIT: Recruitment decisions
-    recruited_useful_hero: float = 3.0
-    dismissed_for_upgrade: float = 1.0
+    recruited_useful_hero: float = 30.0
+    dismissed_for_upgrade: float = 10.0
     enabled_recruit: bool = True
 
     # GL-INDUSTRY: Cross-floor resource planning

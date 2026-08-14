@@ -158,6 +158,15 @@ class RewardShaper:
         if dust_delta > 0:
             reward += self.core.dust_collected_per_unit * dust_delta
 
+        # Per-turn production reward (incentivizes building production infrastructure)
+        if curr.resources:
+            total_production = (
+                curr.resources.industry_per_turn
+                + curr.resources.food_per_turn
+                + curr.resources.science_per_turn
+            )
+            reward += self.core.production_per_turn_scale * total_production
+
         return reward
 
     # ------------------------------------------------------------------

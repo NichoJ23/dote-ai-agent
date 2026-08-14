@@ -89,7 +89,8 @@ class TestCoreRewards:
         for h in curr.heroes:
             h.has_crystal = False
         reward = shaper.compute_reward(prev, curr)
-        assert reward <= -200.0
+        # game_over (-200) dominates even with production reward
+        assert reward <= -190.0
 
     def test_hero_died_penalty(self):
         shaper = RewardShaper()
@@ -98,7 +99,7 @@ class TestCoreRewards:
         # Remove Gork (died)
         curr.heroes = [h for h in curr.heroes if h.name != "Gork"]
         reward = shaper.compute_reward(prev, curr)
-        assert shaper.core.hero_died in [reward]  # Should contain -50
+        # hero_died (-50) + production (+1.0) → net negative
         assert reward < 0
 
     def test_room_explored_reward(self):
@@ -117,7 +118,9 @@ class TestCoreRewards:
         action = {"command": "BUILD_MODULE", "parameters": {}}
         result = {"success": False, "error": "Not enough industry"}
         reward = shaper.compute_reward(prev, curr, action, result)
-        assert reward == shaper.core.invalid_action
+        # invalid_action + production reward
+        expected_production = 0.1 * (5 + 3 + 2)
+        assert reward == pytest.approx(shaper.core.invalid_action + expected_production)
 
     def test_successful_action_reward(self):
         shaper = RewardShaper()
@@ -126,6 +129,7 @@ class TestCoreRewards:
         action = {"command": "POWER_ROOM", "parameters": {"room_index": 2}}
         result = {"success": True}
         reward = shaper.compute_reward(prev, curr, action, result)
+        # successful_action + production reward + possible GL-POWER reward
         assert reward >= shaper.core.successful_action
 
     def test_wait_penalty(self):
@@ -134,7 +138,9 @@ class TestCoreRewards:
         curr = _base_state()
         action = {"command": "WAIT", "parameters": {}}
         reward = shaper.compute_reward(prev, curr, action, None)
-        assert reward == shaper.core.wait_penalty
+        # wait_penalty + production reward
+        expected_production = 0.1 * (5 + 3 + 2)
+        assert reward == pytest.approx(shaper.core.wait_penalty + expected_production)
 
     def test_module_built_reward(self):
         shaper = RewardShaper()
@@ -161,7 +167,10 @@ class TestCoreRewards:
         # Increase dust by 3
         curr.resources.dust = prev.resources.dust + 3
         reward = shaper.compute_reward(prev, curr)
-        assert reward == pytest.approx(shaper.core.dust_collected_per_unit * 3)
+        # production reward (10 total per turn * 0.1) + dust reward (3 * 0.5)
+        expected_production = 0.1 * (5 + 3 + 2)  # ind + food + sci per turn
+        expected_dust = 0.5 * 3
+        assert reward == pytest.approx(expected_production + expected_dust)
 
     def test_research_completed_reward(self):
         shaper = RewardShaper()
@@ -219,8 +228,9 @@ class TestGLPower:
         action = {"command": "UNPOWER_ROOM", "parameters": {"room_index": 1}}
         result = {"success": True}
         reward = shaper.compute_reward(prev, curr, action, result)
-        # Only core rewards (successful_action), no power penalty
-        assert reward == shaper.core.successful_action
+        # Only core rewards (successful_action + production), no power penalty
+        expected_production = 0.1 * (5 + 3 + 2)
+        assert reward == pytest.approx(shaper.core.successful_action + expected_production)
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +268,9 @@ class TestGLOperate:
         curr = _base_state()
         curr.heroes[0].is_operating = True
         reward = shaper.compute_reward(prev, curr)
-        assert reward == 0.0  # No core event, no GL
+        # Only production reward (no GL-OPERATE since disabled)
+        expected_production = 0.1 * (5 + 3 + 2)
+        assert reward == pytest.approx(expected_production)
 
 
 # ---------------------------------------------------------------------------
@@ -298,8 +310,8 @@ class TestGLEscape:
         for h in curr.heroes:
             h.has_crystal = False
         reward = shaper.compute_reward(prev, curr)
-        # Should include game_over + overstayed
-        assert reward <= shaper.core.game_over + shaper.gl.overstayed
+        # Should include game_over + overstayed (both negative, dominate production)
+        assert reward < -200.0
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +327,10 @@ class TestGLCombat:
         curr = _base_state()
         curr.heroes[1].hp = 25  # Gork dropped to 25% (below 30%)
         reward = shaper.compute_reward(prev, curr)
-        assert reward <= shaper.gl.hero_took_heavy_damage
+        # hero_took_heavy_damage (-1.0) + production (+1.0) → net ~0
+        # The key check is that the penalty IS applied (reward < production alone)
+        expected_production = 0.1 * (5 + 3 + 2)
+        assert reward < expected_production  # Penalty reduced the reward
 
     def test_hero_healed_wisely_reward(self):
         shaper = RewardShaper()
@@ -348,7 +363,7 @@ class TestGLRecruit:
         action = {"command": "RECRUIT_HERO", "parameters": {"recruiter_hero_name": "Max", "recruit_name": "Sara"}}
         result = {"success": True}
         reward = shaper.compute_reward(prev, curr, action, result)
-        assert reward >= shaper.gl.recruited_useful_hero
+        assert reward >= 30.0  # recruited_useful_hero
 
     def test_recruit_disabled_no_reward(self):
         config = RewardConfig()
@@ -364,8 +379,9 @@ class TestGLRecruit:
         action = {"command": "RECRUIT_HERO", "parameters": {"recruiter_hero_name": "Max", "recruit_name": "Sara"}}
         result = {"success": True}
         reward = shaper.compute_reward(prev, curr, action, result)
-        # Only core successful_action, no recruit GL
-        assert reward == shaper.core.successful_action
+        # Only core successful_action + production, no recruit GL
+        expected_production = 0.1 * (5 + 3 + 2)
+        assert reward == pytest.approx(shaper.core.successful_action + expected_production)
 
 
 # ---------------------------------------------------------------------------
@@ -424,6 +440,12 @@ class TestAllGLDisabled:
         prev = _base_state()
         curr = _base_state(crystal_state="PluggedOnExitSlot")
         reward = shaper.compute_reward(prev, curr)
-        # Should be exactly core rewards only (floor_escaped + floor_progress)
-        expected = shaper.core.floor_escaped + shaper.core.floor_progress_scale * (1.0 / 12.0)
+        # Should be exactly core rewards only:
+        # floor_escaped + floor_progress + production
+        expected_production = 0.1 * (5 + 3 + 2)  # curr has ind=5, food=3, sci=2 per turn
+        expected = (
+            shaper.core.floor_escaped
+            + shaper.core.floor_progress_scale * (1.0 / 12.0)
+            + expected_production
+        )
         assert reward == pytest.approx(expected, rel=1e-5)

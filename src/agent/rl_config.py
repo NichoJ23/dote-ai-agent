@@ -54,10 +54,17 @@ class GuidelineRewardWeights:
     depower_module_room_cost_scale: float = -0.1  # Penalty scaled by module cost when depowering a room with modules
     enabled_power: bool = True
 
-    # GL-OPERATE: Operate bonus awareness
-    operator_placed: float = 2.0
-    operator_interrupted: float = -2.0
+    # GL-OPERATE: Operate placement and protection
+    operator_moved_to_module_room: float = 5.0    # Hero with Operate moved to room with major module
+    operator_moved_away_from_module: float = -5.0  # Hero with Operate moved to room WITHOUT major module
+    operator_on_turn_change: float = 5.0           # Per operator in a major-module room on door open/turn change
+    operator_interrupted: float = -10.0            # Moved a hero who was actively operating
     enabled_operate: bool = True
+
+    # GL-LEVELUP: Smart leveling decisions
+    level_up_unlocks_skill: float = 5.0    # Level-up unlocks a new passive or active ability
+    level_up_toward_operate: float = 5.0   # Level-up on a hero who can unlock Operate but doesn't have it yet
+    enabled_levelup: bool = True
 
     # GL-ESCAPE: Escape timing
     escape_all_doors_open: float = 5.0

@@ -228,6 +228,7 @@ class RewardShaper:
 
         reward += self._gl_power(prev, curr, action, result)
         reward += self._gl_operate(prev, curr, action, result)
+        reward += self._gl_levelup(prev, curr, action, result)
         reward += self._gl_escape(prev, curr, action, result)
         reward += self._gl_combat(prev, curr, action, result)
         reward += self._gl_equipment(prev, curr, action, result)
@@ -280,26 +281,80 @@ class RewardShaper:
         self, prev: GameStatePayload, curr: GameStatePayload,
         action: Optional[dict], result: Optional[dict],
     ) -> float:
-        """GL-OPERATE: Reward for placing operators, penalty for interrupting them."""
+        """GL-OPERATE: Reward for proper operator placement, penalize interruption."""
         if not self.gl.enabled_operate:
             return 0.0
 
         reward = 0.0
 
-        # Detect new operator placement
-        prev_operating = {h.name for h in prev.heroes if h.is_operating}
-        curr_operating = {h.name for h in curr.heroes if h.is_operating}
+        # Hero with Operate moved — check destination
+        if action and action.get("command") in ("MOVE_HERO", "POSITION_HERO") and result and result.get("success"):
+            hero_name = action.get("parameters", {}).get("hero_name", "")
+            target_room_idx = action.get("parameters", {}).get("target_room_index", -1)
 
-        new_operators = curr_operating - prev_operating
-        if new_operators:
-            reward += self.gl.operator_placed * len(new_operators)
+            # Check if this hero has the Operate passive
+            hero = self._find_hero(curr, hero_name)
+            if hero and any(p.name == "Operate" for p in hero.passive_skills):
+                # Was the hero currently operating? (check prev state)
+                prev_hero = self._find_hero(prev, hero_name)
+                if prev_hero and prev_hero.is_operating:
+                    # Interrupted an active operator — harsh penalty
+                    reward += self.gl.operator_interrupted
+                else:
+                    # Hero with Operate moved — reward/penalize based on destination
+                    target_room = self._get_room(curr, target_room_idx)
+                    if target_room and target_room.major_module_name:
+                        reward += self.gl.operator_moved_to_module_room
+                    else:
+                        reward += self.gl.operator_moved_away_from_module
 
-        # Detect operator interruption (was operating, now not — and we moved them)
-        interrupted = prev_operating - curr_operating
-        if interrupted and action and action.get("command") == "MOVE_HERO":
-            moved_hero = action.get("parameters", {}).get("hero_name", "")
-            if moved_hero in interrupted:
-                reward += self.gl.operator_interrupted
+        # On turn change (door open): reward for each operator in a major-module room
+        if curr.turn > prev.turn:
+            for hero in curr.heroes:
+                if any(p.name == "Operate" for p in hero.passive_skills):
+                    room = self._get_room(curr, hero.room_index)
+                    if room and room.major_module_name:
+                        reward += self.gl.operator_on_turn_change
+
+        return reward
+
+    def _gl_levelup(
+        self, prev: GameStatePayload, curr: GameStatePayload,
+        action: Optional[dict], result: Optional[dict],
+    ) -> float:
+        """GL-LEVELUP: Reward smart leveling decisions."""
+        if not self.gl.enabled_levelup:
+            return 0.0
+
+        if not (action and action.get("command") == "LEVEL_UP_HERO" and result and result.get("success")):
+            return 0.0
+
+        reward = 0.0
+        hero_name = action.get("parameters", {}).get("hero_name", "")
+
+        # Find the hero in current state (post level-up)
+        curr_hero = self._find_hero(curr, hero_name)
+        prev_hero = self._find_hero(prev, hero_name)
+        if not curr_hero or not prev_hero:
+            return 0.0
+
+        # Check if this level-up unlocked a new skill (compare skill trees)
+        if curr_hero.skill_tree and prev_hero.skill_tree:
+            prev_unlocked = sum(1 for e in prev_hero.skill_tree if e.is_unlocked)
+            curr_unlocked = sum(1 for e in curr_hero.skill_tree if e.is_unlocked)
+            if curr_unlocked > prev_unlocked:
+                reward += self.gl.level_up_unlocks_skill
+
+        # Check if this hero can unlock Operate but doesn't have it yet
+        has_operate = any(p.name == "Operate" for p in curr_hero.passive_skills)
+        if not has_operate:
+            # Check skill tree for Operate entry
+            can_get_operate = any(
+                e.skill_name == "Operate" or e.base_name == "Operate"
+                for e in curr_hero.skill_tree
+            ) if curr_hero.skill_tree else False
+            if can_get_operate:
+                reward += self.gl.level_up_toward_operate
 
         return reward
 

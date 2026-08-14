@@ -975,6 +975,7 @@ The C# `JsonSerializer` produces snake_case JSON with these key differences from
 | `equipment` [{slot_type, item_id, item_name}] | `equipment` [{slot_category, item_name, weapon_type, attack_type}] | Weapon classification on items |
 | `is_carrying_crystal` | `has_crystal` | |
 | — | `weapon_class` | Hero's innate attack type from HeroConfig.AttackType |
+| — | `level_up_cost` | Food cost to reach next level (from GetNextLevelConfig().FoodCost; 0 at max) |
 | — | `skill_tree` [{skill_name, base_name, is_active, skill_level, unlock_hero_level, is_unlocked}] | Full skill progression tree |
 | — | `operating_module_name` | Which module being operated |
 | — | `is_recruitable`, `is_recruited` | Recruitment state |
@@ -1210,7 +1211,7 @@ observation_space = Dict({
     #   room_index, hp_ratio, level, has_crystal, is_operating,
     #   is_busy, is_usable, num_passive_skills, has_operate_passive,
     #   has_repair_passive, num_active_skills, num_equipment,
-    #   faction_id, weapon_class_id, level_up_cost,
+    #   faction_id, weapon_class_id, level_up_cost (food),
     #   distance_to_exit, distance_to_crystal, is_gathering_item,
     #   total_skills_in_tree, unlocked_skills, next_unlock_level,
     #   skills_remaining_to_unlock

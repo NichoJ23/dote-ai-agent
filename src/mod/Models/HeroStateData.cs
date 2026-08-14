@@ -25,6 +25,7 @@ namespace DotEAgent.Models
         public float Speed;               // MoveSpeed
         public float Wit;                 // Wit (module operation effectiveness)
         public float AttackCooldown;      // Time between attacks
+        public float LevelUpCost;         // Food cost to reach next level (0 if max level)
 
         public List<ActiveSkillData> ActiveSkills;
         public List<PassiveSkillData> PassiveSkills;

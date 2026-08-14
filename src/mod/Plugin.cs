@@ -243,15 +243,21 @@ namespace DotEAgent
 
         /// <summary>
         /// Release Unity's single-instance mutex so multiple game instances can run.
-        /// The mutex name follows the pattern: "...DungeonoftheEndless-exe-SingleInstanceMutex-Default"
         /// </summary>
         private void ReleaseSingleInstanceMutex()
         {
+            // Unity 5.x uses a mutex based on the application path or product name.
+            // The exact name varies — try multiple patterns and log attempts.
             string[] mutexNames = new string[]
             {
                 "DungeonoftheEndless-exe-SingleInstanceMutex-Default",
-                "ndless-DungeonoftheEndless-exe-SingleInstanceMutex-Default",
-                // Unity sometimes uses the full path or abbreviated name
+                "Dungeon of the Endless-SingleInstanceMutex-Default",
+                "DungeonoftheEndless.exe-SingleInstanceMutex-Default",
+                "Dungeonofthe Endless-SingleInstanceMutex-Default",
+                // Unity sometimes uses just the product name
+                UnityEngine.Application.productName + "-SingleInstanceMutex-Default",
+                UnityEngine.Application.productName.Replace(" ", "") + "-SingleInstanceMutex-Default",
+                UnityEngine.Application.productName.Replace(" ", "") + "-exe-SingleInstanceMutex-Default",
             };
 
             foreach (string name in mutexNames)
@@ -266,42 +272,33 @@ namespace DotEAgent
                 }
                 catch (System.Threading.WaitHandleCannotBeOpenedException)
                 {
-                    // Mutex doesn't exist with this name, try next
+                    Log.LogDebug("Mutex not found: " + name);
+                }
+                catch (System.UnauthorizedAccessException)
+                {
+                    // Mutex exists but we can't release it — try closing via handle instead
+                    Log.LogDebug("Mutex found but unauthorized: " + name + " — trying Close()");
+                    try
+                    {
+                        System.Threading.Mutex mutex = System.Threading.Mutex.OpenExisting(name,
+                            System.Security.AccessControl.MutexRights.Synchronize);
+                        mutex.Close();
+                        Log.LogInfo("Closed single-instance mutex (via Synchronize): " + name);
+                        return;
+                    }
+                    catch (System.Exception ex2)
+                    {
+                        Log.LogDebug("Close also failed: " + ex2.Message);
+                    }
                 }
                 catch (System.Exception ex)
                 {
-                    Log.LogDebug("Mutex release attempt for '" + name + "': " + ex.Message);
+                    Log.LogDebug("Mutex attempt '" + name + "': " + ex.GetType().Name + " - " + ex.Message);
                 }
             }
 
-            // If named attempts fail, try to find it via the application's product name
-            try
-            {
-                string productName = UnityEngine.Application.productName;
-                if (!string.IsNullOrEmpty(productName))
-                {
-                    // Unity uses various formats; try common patterns
-                    string[] patterns = new string[]
-                    {
-                        productName + "-SingleInstanceMutex-Default",
-                        productName.Replace(" ", "") + "-exe-SingleInstanceMutex-Default",
-                    };
-                    foreach (string pattern in patterns)
-                    {
-                        try
-                        {
-                            System.Threading.Mutex mutex = System.Threading.Mutex.OpenExisting(pattern);
-                            mutex.ReleaseMutex();
-                            mutex.Close();
-                            Log.LogInfo("Released single-instance mutex: " + pattern);
-                            return;
-                        }
-                        catch { }
-                    }
-                }
-            }
-            catch { }
-
+            // Log the product name for debugging
+            Log.LogDebug("Application.productName = '" + UnityEngine.Application.productName + "'");
             Log.LogDebug("No single-instance mutex found to release (may already allow multiple instances)");
         }
 

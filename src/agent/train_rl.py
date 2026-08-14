@@ -243,7 +243,16 @@ class TrainingRunner:
         logger.info("Restarting game for next episode...")
         try:
             # Wait for game-over screen to appear
-            time.sleep(3.0)
+            time.sleep(5.0)
+
+            # Disconnect and reconnect IPC (game tears down sockets during scene transition)
+            try:
+                env._ipc.disconnect()
+            except Exception:
+                pass
+            time.sleep(2.0)
+            env._ipc.connect()
+            env._connected = True
 
             # Return to menu
             result = env._ipc.send_action("RETURN_TO_MENU", {})

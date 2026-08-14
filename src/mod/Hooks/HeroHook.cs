@@ -122,6 +122,17 @@ namespace DotEAgent.Hooks
                 // Simulation may not be loaded yet for this hero
             }
 
+            // Level-up cost (food to reach next level)
+            try
+            {
+                HeroLevelConfig nextLevelCfg = hero.GetNextLevelConfig();
+                data.LevelUpCost = (nextLevelCfg != null) ? nextLevelCfg.FoodCost : 0f;
+            }
+            catch (System.Exception)
+            {
+                data.LevelUpCost = 0f;
+            }
+
             // Build the skill tree and unlock level mapping from levelConfigs
             // levelConfigs[i] corresponds to hero level (i+1) and contains Skills[] unlocked at that level
             var skillUnlockLevels = new Dictionary<string, int>();

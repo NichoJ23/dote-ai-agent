@@ -137,6 +137,7 @@ class HeroState(BaseModel):
     speed: float = 0.0            # MoveSpeed
     wit: float = 0.0              # Wit (module operation effectiveness)
     attack_cooldown: float = 0.0  # Time between attacks
+    level_up_cost: float = 0.0    # Food cost to reach next level (0 if max level)
 
     active_skills: list[ActiveSkill] = Field(default_factory=list)
     passive_skills: list[PassiveSkill] = Field(default_factory=list)

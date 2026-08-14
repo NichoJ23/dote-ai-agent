@@ -437,6 +437,12 @@ public class HeroLevelConfig : IDatatableElement
 }
 ```
 
+**Level-up cost extraction:**
+```csharp
+HeroLevelConfig nextLevel = hero.GetNextLevelConfig();  // public method
+float foodCost = (nextLevel != null) ? nextLevel.FoodCost : 0f;  // 0 = max level
+```
+
 **Naming convention:** Level config names follow `Hero_{HeroName}_LVL{N}` pattern. The hero loads all its level configs during `Init()` by querying `Databases.GetDatabase<HeroLevelConfig>()` until no more are found.
 
 ### SkillConfig — Skill metadata

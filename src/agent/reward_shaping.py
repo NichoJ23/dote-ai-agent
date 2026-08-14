@@ -158,8 +158,9 @@ class RewardShaper:
         if dust_delta > 0:
             reward += self.core.dust_collected_per_unit * dust_delta
 
-        # Per-turn production reward (incentivizes building production infrastructure)
-        if curr.resources:
+        # Per-turn production reward (only on turn change / door open)
+        # Fires when turn advances (new rooms = door opened, or turn counter changed)
+        if curr.turn > prev.turn and curr.resources:
             total_production = (
                 curr.resources.industry_per_turn
                 + curr.resources.food_per_turn

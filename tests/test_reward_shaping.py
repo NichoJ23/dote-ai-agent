@@ -118,9 +118,8 @@ class TestCoreRewards:
         action = {"command": "BUILD_MODULE", "parameters": {}}
         result = {"success": False, "error": "Not enough industry"}
         reward = shaper.compute_reward(prev, curr, action, result)
-        # invalid_action + production reward
-        expected_production = 0.1 * (5 + 3 + 2)
-        assert reward == pytest.approx(shaper.core.invalid_action + expected_production)
+        # No turn change → no production. Just invalid_action.
+        assert reward == pytest.approx(shaper.core.invalid_action)
 
     def test_successful_action_reward(self):
         shaper = RewardShaper()
@@ -138,9 +137,8 @@ class TestCoreRewards:
         curr = _base_state()
         action = {"command": "WAIT", "parameters": {}}
         reward = shaper.compute_reward(prev, curr, action, None)
-        # wait_penalty + production reward
-        expected_production = 0.1 * (5 + 3 + 2)
-        assert reward == pytest.approx(shaper.core.wait_penalty + expected_production)
+        # No turn change → no production reward. Just wait penalty.
+        assert reward == pytest.approx(shaper.core.wait_penalty)
 
     def test_module_built_reward(self):
         shaper = RewardShaper()
@@ -167,10 +165,8 @@ class TestCoreRewards:
         # Increase dust by 3
         curr.resources.dust = prev.resources.dust + 3
         reward = shaper.compute_reward(prev, curr)
-        # production reward (10 total per turn * 0.1) + dust reward (3 * 0.5)
-        expected_production = 0.1 * (5 + 3 + 2)  # ind + food + sci per turn
-        expected_dust = 0.5 * 3
-        assert reward == pytest.approx(expected_production + expected_dust)
+        # No turn change, so no production reward. Just dust reward.
+        assert reward == pytest.approx(shaper.core.dust_collected_per_unit * 3)
 
     def test_research_completed_reward(self):
         shaper = RewardShaper()
@@ -228,9 +224,8 @@ class TestGLPower:
         action = {"command": "UNPOWER_ROOM", "parameters": {"room_index": 1}}
         result = {"success": True}
         reward = shaper.compute_reward(prev, curr, action, result)
-        # Only core rewards (successful_action + production), no power penalty
-        expected_production = 0.1 * (5 + 3 + 2)
-        assert reward == pytest.approx(shaper.core.successful_action + expected_production)
+        # No turn change → no production. Just successful_action.
+        assert reward == pytest.approx(shaper.core.successful_action)
 
 
 # ---------------------------------------------------------------------------
@@ -268,9 +263,8 @@ class TestGLOperate:
         curr = _base_state()
         curr.heroes[0].is_operating = True
         reward = shaper.compute_reward(prev, curr)
-        # Only production reward (no GL-OPERATE since disabled)
-        expected_production = 0.1 * (5 + 3 + 2)
-        assert reward == pytest.approx(expected_production)
+        # No turn change → no production. No GL. Should be 0.
+        assert reward == pytest.approx(0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -327,10 +321,8 @@ class TestGLCombat:
         curr = _base_state()
         curr.heroes[1].hp = 25  # Gork dropped to 25% (below 30%)
         reward = shaper.compute_reward(prev, curr)
-        # hero_took_heavy_damage (-1.0) + production (+1.0) → net ~0
-        # The key check is that the penalty IS applied (reward < production alone)
-        expected_production = 0.1 * (5 + 3 + 2)
-        assert reward < expected_production  # Penalty reduced the reward
+        # No turn change → no production. Just heavy damage penalty.
+        assert reward == pytest.approx(shaper.gl.hero_took_heavy_damage)
 
     def test_hero_healed_wisely_reward(self):
         shaper = RewardShaper()
@@ -379,9 +371,8 @@ class TestGLRecruit:
         action = {"command": "RECRUIT_HERO", "parameters": {"recruiter_hero_name": "Max", "recruit_name": "Sara"}}
         result = {"success": True}
         reward = shaper.compute_reward(prev, curr, action, result)
-        # Only core successful_action + production, no recruit GL
-        expected_production = 0.1 * (5 + 3 + 2)
-        assert reward == pytest.approx(shaper.core.successful_action + expected_production)
+        # No turn change → no production. Just successful_action.
+        assert reward == pytest.approx(shaper.core.successful_action)
 
 
 # ---------------------------------------------------------------------------
@@ -440,12 +431,10 @@ class TestAllGLDisabled:
         prev = _base_state()
         curr = _base_state(crystal_state="PluggedOnExitSlot")
         reward = shaper.compute_reward(prev, curr)
-        # Should be exactly core rewards only:
-        # floor_escaped + floor_progress + production
-        expected_production = 0.1 * (5 + 3 + 2)  # curr has ind=5, food=3, sci=2 per turn
+        # No turn change (both turn=3), so no production reward.
+        # Should be exactly: floor_escaped + floor_progress
         expected = (
             shaper.core.floor_escaped
             + shaper.core.floor_progress_scale * (1.0 / 12.0)
-            + expected_production
         )
         assert reward == pytest.approx(expected, rel=1e-5)

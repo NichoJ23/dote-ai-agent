@@ -45,6 +45,8 @@ class RewardShaper:
         self._graph_builder = GraphBuilder()
         # Track heroes dismissed this step (so they don't trigger hero_died penalty)
         self._dismissed_this_step: set[str] = set()
+        # Track recent actions for oscillation detection (last 10 action signatures)
+        self._recent_actions: list[str] = []
 
     @property
     def core(self) -> CoreRewardWeights:
@@ -137,6 +139,18 @@ class RewardShaper:
         # Wait penalty (agent chose to do nothing)
         if action and action.get("command") == "WAIT":
             reward += self.core.wait_penalty
+
+        # Repeat/oscillation penalty — detect toggling power or moving heroes back and forth
+        if action and result and result.get("success", False):
+            action_sig = self._get_action_signature(action)
+            inverse_sig = self._get_inverse_signature(action)
+            # Check if the inverse of this action was done recently
+            if inverse_sig and inverse_sig in self._recent_actions:
+                reward += self.core.repeat_action_penalty
+            # Track this action
+            self._recent_actions.append(action_sig)
+            if len(self._recent_actions) > 10:
+                self._recent_actions.pop(0)
 
         # Module built
         prev_modules = self._count_modules(prev)
@@ -304,6 +318,15 @@ class RewardShaper:
             # If we had very few closed doors left, we overstayed
             if len(prev.closed_doors) <= 2 and len(prev.rooms) > 6:
                 reward += self.gl.overstayed
+
+        # Hero moved to exit room during escape (crystal already picked up)
+        if action and action.get("command") == "MOVE_HERO" and result and result.get("success"):
+            # Check if crystal is being carried (escape in progress)
+            crystal_carried = any(h.has_crystal for h in curr.heroes)
+            if crystal_carried:
+                target_room = action.get("parameters", {}).get("target_room_index", -1)
+                if target_room == curr.exit_room_index and curr.exit_room_index >= 0:
+                    reward += self.gl.hero_moved_to_exit
 
         return reward
 
@@ -534,4 +557,38 @@ class RewardShaper:
         for hero in state.heroes:
             if hero.name == name:
                 return hero
+        return None
+
+    def _get_action_signature(self, action: dict) -> str:
+        """Get a compact signature for an action (for oscillation detection)."""
+        cmd = action.get("command", "")
+        params = action.get("parameters", {})
+        if cmd == "POWER_ROOM":
+            return f"POWER:{params.get('room_index')}"
+        elif cmd == "UNPOWER_ROOM":
+            return f"UNPOWER:{params.get('room_index')}"
+        elif cmd == "MOVE_HERO":
+            return f"MOVE:{params.get('hero_name')}→{params.get('target_room_index')}"
+        elif cmd == "POSITION_HERO":
+            return f"MOVE:{params.get('hero_name')}→{params.get('target_room_index')}"
+        return f"{cmd}"
+
+    def _get_inverse_signature(self, action: dict) -> Optional[str]:
+        """Get the signature of the inverse action (what would undo this)."""
+        cmd = action.get("command", "")
+        params = action.get("parameters", {})
+        if cmd == "POWER_ROOM":
+            return f"UNPOWER:{params.get('room_index')}"
+        elif cmd == "UNPOWER_ROOM":
+            return f"POWER:{params.get('room_index')}"
+        elif cmd in ("MOVE_HERO", "POSITION_HERO"):
+            # The inverse of moving hero X to room Y is moving hero X FROM room Y
+            # We detect this by checking if we recently moved this hero elsewhere
+            hero_name = params.get("hero_name", "")
+            # Check if this hero was recently moved — any prior MOVE of same hero = oscillation
+            for prev_sig in reversed(self._recent_actions):
+                if prev_sig.startswith(f"MOVE:{hero_name}→"):
+                    # Same hero moved again = likely oscillation
+                    return prev_sig
+            return None
         return None

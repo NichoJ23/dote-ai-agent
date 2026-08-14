@@ -87,6 +87,10 @@ def create_instance(
         if item.name == "BepInEx":
             # Copy BepInEx entirely (we need to modify the config)
             shutil.copytree(item, target)
+        elif item.name.endswith("_Data"):
+            # Full copy of Data folder — Unity locks files here, junctions won't work
+            print(f"    Copying {item.name} ({_dir_size_mb(item):.0f} MB)...")
+            shutil.copytree(item, target)
         elif item.is_dir():
             # Create directory junction (Windows symlink for dirs)
             _create_junction(target, item)
@@ -134,6 +138,15 @@ def _create_junction(link_path: Path, target_path: Path) -> None:
             print(f"    WARNING: Could not create junction for {link_path.name}: {e}")
             print(f"    Falling back to full copy...")
             shutil.copytree(target_path, link_path)
+
+
+def _dir_size_mb(path: Path) -> float:
+    """Get total size of a directory in MB."""
+    total = 0
+    for f in path.rglob("*"):
+        if f.is_file():
+            total += f.stat().st_size
+    return total / (1024 * 1024)
 
 
 def create_launch_script(dest: Path, num_envs: int) -> None:

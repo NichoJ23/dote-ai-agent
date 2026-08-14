@@ -31,6 +31,7 @@ class CoreRewardWeights:
     invalid_action: float = -1.0
     successful_action: float = 0.1
     wait_penalty: float = -0.05
+    repeat_action_penalty: float = -2.0  # Penalty for oscillating (toggling power, moving hero back/forth)
     industry_built: float = 3.0
     module_built: float = 1.5
     module_destroyed_cost_scale: float = -0.5  # Multiplied by module's industry cost when destroyed by mobs
@@ -61,6 +62,7 @@ class GuidelineRewardWeights:
     escape_all_doors_open: float = 5.0
     escape_early_but_safe: float = 2.0
     overstayed: float = -10.0
+    hero_moved_to_exit: float = 10.0  # Hero moves toward exit room during escape (crystal picked up)
     enabled_escape: bool = True
 
     # GL-COMBAT: Combat positioning

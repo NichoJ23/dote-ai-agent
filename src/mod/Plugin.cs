@@ -36,6 +36,7 @@ namespace DotEAgent
         // Training mode settings (read from BepInEx/plugins/dote_training.cfg)
         private bool trainingMode = false;
         private float targetTimeScale = 2f;
+        private float targetTimeScaleAction = 8f;  // Slower during Action phase (combat needs reaction time)
         private int trainingResWidth = 640;
         private int trainingResHeight = 480;
         private int statePort = 5555;
@@ -115,10 +116,15 @@ namespace DotEAgent
 
         private void Update()
         {
-            // Enforce game speed every frame (game resets timeScale on unpause/transitions)
-            if (Time.timeScale != 0f && Time.timeScale != targetTimeScale)
+            // Enforce game speed every frame — use faster speed during Strategy, slower during Action
+            float currentTargetScale = targetTimeScale;
+            if (lastSentPhase == "Action")
             {
-                Time.timeScale = targetTimeScale;
+                currentTargetScale = targetTimeScaleAction;
+            }
+            if (Time.timeScale != 0f && Time.timeScale != currentTargetScale)
+            {
+                Time.timeScale = currentTargetScale;
             }
 
             // In training mode, keep enforcing windowed resolution and runInBackground
@@ -443,6 +449,14 @@ namespace DotEAgent
                         if (float.TryParse(value, out parsed) && parsed > 0f)
                         {
                             targetTimeScale = parsed;
+                        }
+                    }
+                    else if (key == "time_scale_action")
+                    {
+                        float parsed;
+                        if (float.TryParse(value, out parsed) && parsed > 0f)
+                        {
+                            targetTimeScaleAction = parsed;
                         }
                     }
                     else if (key == "resolution_width")

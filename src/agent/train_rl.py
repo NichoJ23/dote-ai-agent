@@ -197,8 +197,8 @@ class TrainingRunner:
             step_times.append({"think": t_think, "env": t_env, "total": t_total})
 
             logger.info(
-                f"Step {steps}: {chosen.name} | room={action['room_target']} "
-                f"hero={action['hero_target']} entity={action['entity_target']} | "
+                f"Step {steps}: {chosen.name} | "
+                f"sent={info.get('action_sent', {})} | "
                 f"think={t_think*1000:.1f}ms env={t_env*1000:.1f}ms total={t_total*1000:.1f}ms | "
                 f"reward={reward:.2f} | valid: [{', '.join(valid_options)}]"
             )

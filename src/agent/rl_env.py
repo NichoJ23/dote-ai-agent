@@ -105,10 +105,11 @@ class RLEnv(gym.Env):
         # Components
         self._parser = StateParser()
         self._graph_builder = GraphBuilder()
-        # Disable DESTROY_MODULE in early curriculum stages (guideline_shaping_enabled = early training)
+        # Disable DESTROY_MODULE and DISMISS_HERO in early curriculum stages
         curr_stage = self._config.curriculum.stages[self._config.curriculum.current_stage_index]
         self._mask_computer = ActionMaskComputer(
-            disable_destroy_module=curr_stage.guideline_shaping_enabled
+            disable_destroy_module=curr_stage.guideline_shaping_enabled,
+            disable_dismiss_hero=curr_stage.guideline_shaping_enabled,
         )
         self._reward_shaper = RewardShaper(self._config.rewards)
 
@@ -125,6 +126,10 @@ class RLEnv(gym.Env):
         # Hero collection tracking: hero_name -> item_room_index
         # Hero stays busy until is_gathering_item goes false after arriving
         self._hero_collecting: dict[str, int] = {}
+
+        # Hero crystal pickup tracking: hero_name that's picking up crystal
+        # Hero stays busy until has_crystal becomes true
+        self._hero_picking_crystal: Optional[str] = None
 
         # --- Observation space ---
         self.observation_space = spaces.Dict({
@@ -170,6 +175,7 @@ class RLEnv(gym.Env):
         self._episode_reward = 0.0
         self._hero_move_targets.clear()
         self._hero_collecting.clear()
+        self._hero_picking_crystal = None
 
         obs = self._build_observation(self._current_state)
         info = self._build_info(self._current_state)
@@ -382,6 +388,9 @@ class RLEnv(gym.Env):
         elif option == StrategicOption.INITIATE_ESCAPE:
             # Pick up crystal — the RL agent will handle the full escape sequence
             # via subsequent actions (move carrier to exit, plug crystal)
+            # Mark hero as busy until has_crystal becomes true
+            self._hero_picking_crystal = hero_name
+            self._hero_move_targets[hero_name] = state.start_room_index  # Must go to crystal room
             return "PICK_UP_CRYSTAL", {"hero_name": hero_name}
 
         elif option == StrategicOption.COLLECT_ITEM:
@@ -482,8 +491,24 @@ class RLEnv(gym.Env):
         """Clear move targets for heroes that have arrived at their destination."""
         if not self._current_state:
             return
+
+        # Check crystal pickup completion
+        if self._hero_picking_crystal:
+            hero = next(
+                (h for h in self._current_state.heroes if h.name == self._hero_picking_crystal), None
+            )
+            if hero and hero.has_crystal:
+                # Crystal picked up successfully
+                if self._hero_picking_crystal in self._hero_move_targets:
+                    del self._hero_move_targets[self._hero_picking_crystal]
+                self._hero_picking_crystal = None
+
         arrived = []
         for hero_name, target_room in self._hero_move_targets.items():
+            # Skip heroes picking up crystal — they stay busy until has_crystal
+            if hero_name == self._hero_picking_crystal:
+                continue
+
             hero = next(
                 (h for h in self._current_state.heroes if h.name == hero_name), None
             )

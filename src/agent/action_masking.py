@@ -67,13 +67,16 @@ class ActionMaskComputer:
       - Whether opening another door is too risky
     """
 
-    def __init__(self, disable_destroy_module: bool = False):
+    def __init__(self, disable_destroy_module: bool = False, disable_dismiss_hero: bool = False):
         """
         Args:
             disable_destroy_module: If True, DESTROY_MODULE is always masked.
                                    Useful for early curriculum stages.
+            disable_dismiss_hero: If True, DISMISS_HERO is always masked.
+                                  Useful for early curriculum stages.
         """
         self._disable_destroy_module = disable_destroy_module
+        self._disable_dismiss_hero = disable_dismiss_hero
 
     def compute_mask(self, state: GameStatePayload) -> np.ndarray:
         """
@@ -104,7 +107,7 @@ class ActionMaskComputer:
         mask[StrategicOption.DESTROY_MODULE] = self._can_destroy_module(state) and not self._disable_destroy_module
         mask[StrategicOption.RESEARCH] = self._can_research(state)
         mask[StrategicOption.RECRUIT_HERO] = self._can_recruit(state)
-        mask[StrategicOption.DISMISS_HERO] = self._can_dismiss(state)
+        mask[StrategicOption.DISMISS_HERO] = self._can_dismiss(state) and not self._disable_dismiss_hero
         mask[StrategicOption.LEVEL_UP_HERO] = self._can_level_up(state)
         mask[StrategicOption.BUY_ITEM] = self._can_buy_item(state)
         mask[StrategicOption.EQUIP_ITEM] = self._can_equip_item(state)

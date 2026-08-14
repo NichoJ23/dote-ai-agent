@@ -67,9 +67,12 @@ class RLAgent(BaseAgent):
         self.micro_net = MicroControllerNetwork(self.config.network).to(self.device)
         self.escape_net = EscapeControllerNetwork(self.config.network).to(self.device)
 
-        # Action masking — disable DESTROY_MODULE in early curriculum stages
-        disable_destroy = self.config.curriculum.stages[self.config.curriculum.current_stage_index].guideline_shaping_enabled
-        self._mask_computer = ActionMaskComputer(disable_destroy_module=disable_destroy)
+        # Action masking — disable DESTROY_MODULE and DISMISS_HERO in early curriculum stages
+        disable_early = self.config.curriculum.stages[self.config.curriculum.current_stage_index].guideline_shaping_enabled
+        self._mask_computer = ActionMaskComputer(
+            disable_destroy_module=disable_early,
+            disable_dismiss_hero=disable_early,
+        )
 
         # Internal state
         self._escape_initiated = False

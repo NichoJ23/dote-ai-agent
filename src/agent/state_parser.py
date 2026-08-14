@@ -211,6 +211,7 @@ class GameStatePayload(BaseModel):
     buildable_blueprints: list[BuildableBlueprint] = Field(default_factory=list)
     time_scale: float = 1.0
     is_level_over: bool = False  # True when game is definitively over (crystal destroyed or floor escaped)
+    is_spawning_mobs: bool = False  # True while mobs are still being spawned during Action phase
 
     @field_validator("researchable_blueprints", mode="before")
     @classmethod

@@ -28,5 +28,6 @@ namespace DotEAgent.Models
         public int StartRoomIndex;
         public float TimeScale;
         public bool IsLevelOver;  // True when the game is over (crystal destroyed or floor escaped)
+        public bool IsSpawningMobs;  // True while mobs are still being spawned during Action phase
     }
 }

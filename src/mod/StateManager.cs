@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Reflection;
 using Amplitude.Unity.Framework;
 using DotEAgent.Hooks;
 using DotEAgent.Models;
@@ -19,6 +20,7 @@ namespace DotEAgent
         private ItemHook itemHook;
 
         private bool isBound;
+        private FieldInfo isSpawningMobsField;  // Cached reflection for Dungeon.isSpawningMobs
 
         public bool IsBound { get { return isBound; } }
 
@@ -101,6 +103,20 @@ namespace DotEAgent
             // Check if level is over (game over or floor escaped)
             Dungeon dungeonForLevelOver = SingletonManager.Get<Dungeon>(false);
             payload.IsLevelOver = (dungeonForLevelOver != null && dungeonForLevelOver.IsLevelOver);
+
+            // Check if mobs are still spawning (private field, read via reflection)
+            payload.IsSpawningMobs = false;
+            if (dungeonForLevelOver != null)
+            {
+                try
+                {
+                    if (isSpawningMobsField == null)
+                        isSpawningMobsField = typeof(Dungeon).GetField("isSpawningMobs", BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (isSpawningMobsField != null)
+                        payload.IsSpawningMobs = (bool)isSpawningMobsField.GetValue(dungeonForLevelOver);
+                }
+                catch (System.Exception) { }
+            }
             payload.Resources = resources;
             payload.Rooms = dungeonState.Rooms;
             payload.ClosedDoors = dungeonState.ClosedDoors;

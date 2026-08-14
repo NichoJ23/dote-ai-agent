@@ -24,6 +24,7 @@ namespace DotEAgent.Ipc
             AppendInt(sb, "start_room_index", state.StartRoomIndex, false);
             AppendFloat(sb, "time_scale", state.TimeScale, false);
             AppendBool(sb, "is_level_over", state.IsLevelOver, false);
+            AppendBool(sb, "is_spawning_mobs", state.IsSpawningMobs, false);
 
             // Resources
             sb.Append(",\"resources\":");

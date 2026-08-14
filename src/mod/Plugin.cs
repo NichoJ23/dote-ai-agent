@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using Amplitude;
 using Amplitude.Unity.Framework;
 using BepInEx;
@@ -44,6 +45,11 @@ namespace DotEAgent
         {
             Log = Logger;
             Log.LogInfo(PluginName + " v" + PluginVersion + " loaded!");
+
+            // Release Unity's single-instance mutex to allow multiple game instances.
+            // Unity creates this mutex before BepInEx runs; we close it immediately
+            // so that other copies can start without being rejected.
+            ReleaseSingleInstanceMutex();
 
             // CRITICAL: Force runInBackground immediately before anything else.
             // Without this, Unity stops the game loop when the window loses focus,
@@ -233,6 +239,70 @@ namespace DotEAgent
 
             // Track mob changes mid-turn (they spawn after turn increments)
             lastMobCount = state.Mobs.Count;
+        }
+
+        /// <summary>
+        /// Release Unity's single-instance mutex so multiple game instances can run.
+        /// The mutex name follows the pattern: "...DungeonoftheEndless-exe-SingleInstanceMutex-Default"
+        /// </summary>
+        private void ReleaseSingleInstanceMutex()
+        {
+            string[] mutexNames = new string[]
+            {
+                "DungeonoftheEndless-exe-SingleInstanceMutex-Default",
+                "ndless-DungeonoftheEndless-exe-SingleInstanceMutex-Default",
+                // Unity sometimes uses the full path or abbreviated name
+            };
+
+            foreach (string name in mutexNames)
+            {
+                try
+                {
+                    System.Threading.Mutex mutex = System.Threading.Mutex.OpenExisting(name);
+                    mutex.ReleaseMutex();
+                    mutex.Close();
+                    Log.LogInfo("Released single-instance mutex: " + name);
+                    return;
+                }
+                catch (System.Threading.WaitHandleCannotBeOpenedException)
+                {
+                    // Mutex doesn't exist with this name, try next
+                }
+                catch (System.Exception ex)
+                {
+                    Log.LogDebug("Mutex release attempt for '" + name + "': " + ex.Message);
+                }
+            }
+
+            // If named attempts fail, try to find it via the application's product name
+            try
+            {
+                string productName = UnityEngine.Application.productName;
+                if (!string.IsNullOrEmpty(productName))
+                {
+                    // Unity uses various formats; try common patterns
+                    string[] patterns = new string[]
+                    {
+                        productName + "-SingleInstanceMutex-Default",
+                        productName.Replace(" ", "") + "-exe-SingleInstanceMutex-Default",
+                    };
+                    foreach (string pattern in patterns)
+                    {
+                        try
+                        {
+                            System.Threading.Mutex mutex = System.Threading.Mutex.OpenExisting(pattern);
+                            mutex.ReleaseMutex();
+                            mutex.Close();
+                            Log.LogInfo("Released single-instance mutex: " + pattern);
+                            return;
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+
+            Log.LogDebug("No single-instance mutex found to release (may already allow multiple instances)");
         }
 
         private void OnDestroy()

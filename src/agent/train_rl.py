@@ -308,10 +308,13 @@ class TrainingRunner:
         metrics = self.trainer.update(self.buffer)
         self.buffer.reset()
 
-        logger.debug(
-            f"PPO update: policy_loss={metrics['policy_loss']:.4f}, "
-            f"value_loss={metrics['value_loss']:.4f}, "
-            f"entropy={metrics['entropy']:.4f}"
+        logger.info(
+            f"=== PPO UPDATE === {self.buffer.capacity} steps | "
+            f"policy_loss={metrics['policy_loss']:.4f} | "
+            f"value_loss={metrics['value_loss']:.4f} | "
+            f"entropy={metrics['entropy']:.4f} | "
+            f"clip_frac={metrics['clip_fraction']:.3f} | "
+            f"updates={metrics['num_updates']}"
         )
 
     def _log_metrics(self, episode_reward: float, steps: int, success: bool) -> None:

@@ -43,6 +43,8 @@ class RewardShaper:
     def __init__(self, config: Optional[RewardConfig] = None):
         self.config = config or RewardConfig()
         self._graph_builder = GraphBuilder()
+        # Track heroes dismissed this step (so they don't trigger hero_died penalty)
+        self._dismissed_this_step: set[str] = set()
 
     @property
     def core(self) -> CoreRewardWeights:
@@ -107,11 +109,18 @@ class RewardShaper:
         if curr.is_game_over and not prev.is_game_over:
             reward += self.core.game_over
 
-        # Hero died
+        # Hero died (exclude dismissed heroes — handled separately in GL-RECRUIT)
         prev_heroes = {h.name for h in prev.heroes}
         curr_heroes = {h.name for h in curr.heroes}
         heroes_lost = prev_heroes - curr_heroes
-        reward += self.core.hero_died * len(heroes_lost)
+        # Filter out heroes that were dismissed this step
+        self._dismissed_this_step.clear()
+        if action and action.get("command") == "DISMISS_HERO" and result and result.get("success"):
+            dismissed_name = action.get("parameters", {}).get("hero_name", "")
+            if dismissed_name:
+                self._dismissed_this_step.add(dismissed_name)
+        combat_deaths = heroes_lost - self._dismissed_this_step
+        reward += self.core.hero_died * len(combat_deaths)
 
         # Room explored (new rooms in state)
         new_rooms = len(curr.rooms) - len(prev.rooms)
@@ -140,6 +149,16 @@ class RewardShaper:
                 reward += self.core.industry_built * industry_built
                 modules_built -= industry_built
             reward += self.core.module_built * modules_built
+
+        # Module destroyed by mobs (not sold by agent)
+        if modules_built < 0:
+            was_sell_action = (action and action.get("command") == "SELL_MODULE" and result and result.get("success"))
+            if not was_sell_action:
+                # Modules were destroyed by enemies — penalize by estimated cost
+                modules_lost = abs(modules_built)
+                # Estimate cost: find which modules disappeared
+                destroyed_cost = self._estimate_destroyed_module_cost(prev, curr)
+                reward += self.core.module_destroyed_cost_scale * destroyed_cost
 
         # Research completed
         prev_blueprints = len(prev.researchable_blueprints)
@@ -363,10 +382,16 @@ class RewardShaper:
                     # Still some reward for recruiting, just less
                     reward += self.gl.recruited_useful_hero * 0.3
 
-        # Dismiss-for-upgrade: dismiss followed by recruit in same episode
-        # (tracked externally — here we just reward successful dismiss)
+        # Dismiss logic: penalty depends on context
         if action and action.get("command") == "DISMISS_HERO" and result and result.get("success"):
-            reward += self.gl.dismissed_for_upgrade
+            party_size = len(prev.heroes)
+            has_recruitable = bool(prev.recruitable_heroes)
+            if party_size >= 4 and has_recruitable:
+                # Dismissing to make room for a better hero — net 0 with recruit reward
+                reward += self.gl.dismissed_for_upgrade
+            else:
+                # Wasteful dismiss — no replacement available or party not full
+                reward += self.gl.dismissed_wasteful
 
         return reward
 
@@ -406,6 +431,45 @@ class RewardShaper:
             if room.major_module_name and "Major0002" in room.major_module_name:
                 count += 1
         return count
+
+    def _estimate_destroyed_module_cost(self, prev: GameStatePayload, curr: GameStatePayload) -> float:
+        """
+        Estimate total industry cost of modules that were destroyed between states.
+
+        Compares modules per-room. Uses buildable_blueprints to look up costs,
+        falls back to a default estimate (15 industry) if not found.
+        """
+        # Build a cost lookup from buildable blueprints
+        cost_lookup: dict[str, float] = {}
+        for bp in curr.buildable_blueprints:
+            cost_lookup[bp.name] = bp.industry_cost
+        for bp in prev.buildable_blueprints:
+            cost_lookup[bp.name] = bp.industry_cost
+
+        default_cost = 15.0  # Reasonable default if blueprint cost unknown
+        total_cost = 0.0
+
+        # Compare per-room
+        curr_rooms = {r.index: r for r in curr.rooms}
+        for prev_room in prev.rooms:
+            curr_room = curr_rooms.get(prev_room.index)
+            if curr_room is None:
+                continue
+
+            # Check major module
+            if prev_room.major_module_name and not curr_room.major_module_name:
+                cost = cost_lookup.get(prev_room.major_module_name, default_cost)
+                total_cost += cost
+
+            # Check minor modules
+            prev_minors = set(prev_room.minor_module_names)
+            curr_minors = set(curr_room.minor_module_names)
+            destroyed_minors = prev_minors - curr_minors
+            for module_name in destroyed_minors:
+                cost = cost_lookup.get(module_name, default_cost)
+                total_cost += cost
+
+        return total_cost
 
     def _powered_reachable_count(self, state: GameStatePayload) -> int:
         """Count rooms reachable from crystal via powered chain."""

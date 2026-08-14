@@ -158,10 +158,7 @@ class RLEnv(gym.Env):
             self._ipc.connect()
             self._connected = True
 
-        # Unpause to start
-        self._ipc.send_action("UNPAUSE_GAME", {})
-
-        # Wait for initial state
+        # Wait for initial state (game should already be in dungeon via GameLauncher)
         raw_state = self._ipc.receive_state(timeout=60.0)
         self._current_state = self._parser.parse(raw_state)
         self._prev_state = None

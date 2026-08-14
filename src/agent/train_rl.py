@@ -44,9 +44,10 @@ class TrainingRunner:
       - Curriculum advancement based on success rate
     """
 
-    def __init__(self, config: RLConfig, resume_checkpoint: str | None = None):
+    def __init__(self, config: RLConfig, resume_checkpoint: str | None = None, no_launch: bool = False):
         self.config = config
         self.device = "cpu"  # GPU optional, CPU sufficient for this game
+        self.no_launch = no_launch
 
         # Networks
         self.policy_net = PolicyNetwork(config.network).to(self.device)
@@ -73,12 +74,37 @@ class TrainingRunner:
             self._load_training_state(resume_checkpoint)
 
     def run(self) -> None:
-        """Main training loop."""
+        """Main training loop with automatic game launch and restart."""
         logger.info("Starting RL training")
         logger.info(f"Config: {self.config.training.max_episodes} max episodes")
         logger.info(f"Curriculum stage: {self.curriculum.stage_name}")
 
         try:
+            if self.no_launch:
+                logger.info("Skipping game launch (--no-launch). Game must already be in dungeon.")
+                # Don't use GameLauncher at all — RLEnv will connect directly
+                launcher = None
+            else:
+                logger.info("Launching game and connecting...")
+                launcher = GameLauncher(
+                    host="127.0.0.1",
+                    state_port=5555,
+                    action_port=5556,
+                    use_steam=True,
+                )
+                launcher.launch_and_connect()
+
+                # Start first game
+                logger.info("Starting new game...")
+                launcher.start_new_game(
+                    heroes=self.config.training.default_heroes,
+                    ship=self.config.training.ship,
+                    difficulty=self.config.training.difficulty,
+                )
+                launcher.wait_for_dungeon()
+                # Disconnect launcher — RLEnv will take over the ports
+                launcher.disconnect()
+
             env = RLEnv(config=self.config)
 
             while self.episode_count < self.config.training.max_episodes:
@@ -112,10 +138,16 @@ class TrainingRunner:
                     self.best_success_rate = self.curriculum.success_rate
                     self._save_checkpoint("best")
 
+                # Restart game for next episode
+                if self.episode_count < self.config.training.max_episodes and not self._interrupted:
+                    self._restart_game(env)
+
         except Exception as e:
             logger.error(f"Training error: {e}", exc_info=True)
         finally:
             self._save_checkpoint("final")
+            if launcher:
+                launcher.disconnect()
             logger.info(f"Training complete. Episodes: {self.episode_count}, Steps: {self.total_steps}")
 
     def _run_episode(self, env: RLEnv) -> tuple[float, int, bool]:
@@ -129,17 +161,22 @@ class TrainingRunner:
         episode_reward = 0.0
         steps = 0
         done = False
+        step_times = []  # For latency measurement
 
         while not done:
+            t_start = time.time()
+
             # Convert obs to tensors
             obs_tensor = {k: torch.tensor(v, device=self.device).unsqueeze(0) for k, v in obs.items()}
             mask_tensor = obs_tensor["action_mask"]
 
             # Get action from policy
+            t_think_start = time.time()
             with torch.no_grad():
                 action_dict, log_prob, value = self.policy_net.act(
                     obs_tensor, mask_tensor, deterministic=False
                 )
+            t_think = time.time() - t_think_start
 
             # Convert action to env format
             action = {k: v.item() for k, v in action_dict.items()}
@@ -149,15 +186,22 @@ class TrainingRunner:
             mask_np = obs["action_mask"] if isinstance(obs["action_mask"], np.ndarray) else obs["action_mask"].numpy()
             valid_options = [StrategicOption(i).name for i in range(NUM_OPTIONS) if mask_np[i]]
             chosen = StrategicOption(action["option"])
-            logger.info(
-                f"Step {steps}: chose {chosen.name} | room={action['room_target']} "
-                f"hero={action['hero_target']} entity={action['entity_target']} | "
-                f"valid: [{', '.join(valid_options)}]"
-            )
 
-            # Step environment
+            # Step environment (includes send action + receive state)
+            t_env_start = time.time()
             next_obs, reward, terminated, truncated, info = env.step(action)
+            t_env = time.time() - t_env_start
             done = terminated or truncated
+
+            t_total = time.time() - t_start
+            step_times.append({"think": t_think, "env": t_env, "total": t_total})
+
+            logger.info(
+                f"Step {steps}: {chosen.name} | room={action['room_target']} "
+                f"hero={action['hero_target']} entity={action['entity_target']} | "
+                f"think={t_think*1000:.1f}ms env={t_env*1000:.1f}ms total={t_total*1000:.1f}ms | "
+                f"reward={reward:.2f} | valid: [{', '.join(valid_options)}]"
+            )
 
             # Store transition
             self.buffer.add(obs_tensor, action_dict, log_prob, value, reward, done)
@@ -171,9 +215,74 @@ class TrainingRunner:
             if info.get("floor", 1) > self.curriculum.max_floors:
                 done = True
 
+        # Log latency summary
+        if step_times:
+            avg_think = np.mean([s["think"] for s in step_times]) * 1000
+            avg_env = np.mean([s["env"] for s in step_times]) * 1000
+            avg_total = np.mean([s["total"] for s in step_times]) * 1000
+            logger.info(
+                f"Episode latency: avg_think={avg_think:.1f}ms avg_env={avg_env:.1f}ms "
+                f"avg_total={avg_total:.1f}ms over {len(step_times)} steps"
+            )
+
         # Success = escaped (not game over)
         success = not (info.get("crystal_state") == "Unplugged" or terminated)
         return episode_reward, steps, success
+
+    def _restart_game(self, env: RLEnv) -> None:
+        """
+        Restart the game for the next episode.
+
+        Sequence:
+          1. Wait for game-over screen
+          2. Send RETURN_TO_MENU
+          3. Wait for main menu
+          4. Start new game
+          5. Wait for dungeon to load
+        """
+        logger.info("Restarting game for next episode...")
+        try:
+            # Wait for game-over screen to appear
+            time.sleep(3.0)
+
+            # Return to menu
+            result = env._ipc.send_action("RETURN_TO_MENU", {})
+            if not result.get("success"):
+                logger.warning(f"RETURN_TO_MENU failed: {result.get('error')}, retrying...")
+                time.sleep(5.0)
+                result = env._ipc.send_action("RETURN_TO_MENU", {})
+
+            # Drain any pending state messages
+            time.sleep(3.0)
+            try:
+                while True:
+                    env._ipc.receive_state(timeout=1.0)
+            except Exception:
+                pass
+
+            # Wait for menu to be ready
+            time.sleep(5.0)
+
+            # Start new game
+            heroes = self.config.training.default_heroes
+            if self.curriculum.randomize_heroes:
+                # TODO: randomize from available heroes
+                pass
+
+            env._ipc.send_action("START_NEW_GAME", {
+                "hero_names": heroes,
+                "ship_name": self.config.training.ship,
+                "difficulty": self.config.training.difficulty,
+            })
+
+            # Wait for dungeon to load
+            time.sleep(5.0)
+            logger.info("New game started, waiting for dungeon...")
+
+        except Exception as e:
+            logger.error(f"Error restarting game: {e}")
+            # Try to recover by reconnecting
+            time.sleep(5.0)
 
     def _ppo_update(self, env: RLEnv) -> None:
         """Perform a PPO update using the filled buffer."""
@@ -266,6 +375,7 @@ def main():
     parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from")
     parser.add_argument("--episodes", type=int, default=None, help="Override max episodes")
     parser.add_argument("--stage", type=int, default=None, help="Force curriculum stage")
+    parser.add_argument("--no-launch", action="store_true", help="Skip game launch (game already running)")
     args = parser.parse_args()
 
     # Setup logging
@@ -276,7 +386,7 @@ def main():
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler(log_dir / "rl_training.log", mode="a"),
+            logging.FileHandler(log_dir / "rl_training.log", mode="w"),
         ],
     )
 
@@ -290,7 +400,7 @@ def main():
         config.training.max_episodes = args.episodes
 
     # Run training
-    runner = TrainingRunner(config, resume_checkpoint=args.resume)
+    runner = TrainingRunner(config, resume_checkpoint=args.resume, no_launch=args.no_launch)
     if args.stage is not None:
         runner.curriculum.force_stage(args.stage)
 

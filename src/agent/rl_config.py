@@ -33,6 +33,7 @@ class CoreRewardWeights:
     wait_penalty: float = -0.05
     industry_built: float = 3.0
     module_built: float = 1.5
+    module_destroyed_cost_scale: float = -0.5  # Multiplied by module's industry cost when destroyed by mobs
     research_completed: float = 4.0
     item_equipped: float = 1.0
     dust_collected_per_unit: float = 0.5
@@ -73,7 +74,8 @@ class GuidelineRewardWeights:
 
     # GL-RECRUIT: Recruitment decisions
     recruited_useful_hero: float = 30.0
-    dismissed_for_upgrade: float = 10.0
+    dismissed_for_upgrade: float = -30.0  # Dismiss when party=4 and recruit available (net 0 with recruit)
+    dismissed_wasteful: float = -100.0    # Dismiss when no replacement available
     enabled_recruit: bool = True
 
     # GL-INDUSTRY: Cross-floor resource planning

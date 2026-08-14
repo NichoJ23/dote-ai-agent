@@ -302,6 +302,10 @@ class HeuristicAgent(BaseAgent):
                     # where the flag was pre-set to the final destination)
                     if hero_name not in self._hero_busy:
                         self._hero_busy[hero_name] = {"action": "move", "target_room": target}
+                    # Track which room the move was issued from to prevent spam
+                    hero = next((h for h in self._prev_state.heroes if h.name == hero_name), None) if self._prev_state else None
+                    if hero:
+                        self._hero_busy[hero_name]["issued_from_room"] = hero.room_index
                     logger.debug(f"Hero {hero_name} marked busy: moving to room {self._hero_busy[hero_name].get('target_room')}")
             elif cmd == "REPAIR_MODULE":
                 hero_name = params.get("hero_name")
@@ -316,7 +320,7 @@ class HeuristicAgent(BaseAgent):
                 if from_room is not None and target is not None:
                     self._doors_opened_this_turn.add((from_room, target))
                 if hero_name and target is not None:
-                    self._hero_busy[hero_name] = {"action": "move", "target_room": target}
+                    self._hero_busy[hero_name] = {"action": "move", "target_room": target, "issued_from_room": from_room}
                     logger.debug(f"Hero {hero_name} marked busy: entering room {target} (door open)")
             elif cmd == "BUILD_MODULE":
                 # Track industry gen built
@@ -1697,7 +1701,11 @@ class HeuristicAgent(BaseAgent):
             return None
 
         for hero in defenders:
-            hero_room = hero.room_index  # Use actual state position (fresh from mod)
+            if self._is_hero_busy(hero.name):
+                continue  # Already moving
+            if not hero.is_usable:
+                continue  # In animation
+            hero_room = hero.room_index
             if hero_room == rally_room:
                 continue  # Already in position
 
@@ -1744,7 +1752,11 @@ class HeuristicAgent(BaseAgent):
                 continue
             if hero.max_hp <= 0:
                 continue
-            hero_room = hero.room_index  # Use actual state position
+            if self._is_hero_busy(hero.name):
+                continue
+            if not hero.is_usable:
+                continue
+            hero_room = hero.room_index
             hp_ratio = hero.hp / hero.max_hp
             if hp_ratio < threshold and hero_room != rally_room:
                 # Move toward rally room
@@ -2127,19 +2139,17 @@ class HeuristicAgent(BaseAgent):
 
         Called at the start of every select_action() call.
         """
-        # During combat (Action phase), clear all busy flags — heroes move freely
-        if state.game_phase.is_combat:
-            if self._hero_busy:
-                logger.debug(f"Clearing all busy flags for combat phase")
-                self._hero_busy.clear()
-            return
-
         # At the start of a new Strategy phase (after combat ends), clear all
         # busy flags so heroes are free to be reassigned for the new turn.
         if self._prev_state is not None and self._prev_state.game_phase.is_combat and state.game_phase.is_planning:
             if self._hero_busy:
                 logger.debug(f"Clearing all busy flags: new Strategy phase after combat")
                 self._hero_busy.clear()
+            return
+
+        # During combat, DON'T clear busy flags every tick — heroes are moving
+        # and we don't want to spam repeat commands. Only clear on phase transition above.
+        if state.game_phase.is_combat:
             return
 
         completed = []
@@ -2215,6 +2225,8 @@ class HeuristicAgent(BaseAgent):
         """
         For heroes that are busy moving to a multi-hop destination,
         issue the next hop if they've stopped at an intermediate room.
+        Only issues a new move if the hero's position has changed since
+        the last move was issued (prevents spamming the same command).
         """
         for hero_name, busy_info in self._hero_busy.items():
             if busy_info.get("action") != "move":
@@ -2227,6 +2239,13 @@ class HeuristicAgent(BaseAgent):
             if hero is None:
                 continue
 
+            # Don't re-issue a move if we already sent one and the hero
+            # hasn't changed room yet (they're still walking)
+            last_issued_from = busy_info.get("issued_from_room")
+            if last_issued_from is not None and hero.room_index == last_issued_from:
+                # Hero still in the same room we issued the move from — wait
+                continue
+
             # Hero hasn't reached final destination yet
             if hero.room_index != target_room:
                 # Issue next hop toward target
@@ -2234,6 +2253,8 @@ class HeuristicAgent(BaseAgent):
                 if path and len(path) >= 2:
                     next_hop = path[1]
                     logger.debug(f"Continuing multi-hop: {hero_name} at room {hero.room_index} -> next hop {next_hop} (final: {target_room})")
+                    # Track which room we issued from so we don't spam
+                    busy_info["issued_from_room"] = hero.room_index
                     return _action(
                         "MOVE_HERO",
                         hero_name=hero_name,

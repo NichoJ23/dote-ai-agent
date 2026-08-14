@@ -424,10 +424,17 @@ class AgentRunner:
                     elif command == "BUY_FROM_MERCHANT":
                         floor_metrics.items_bought += 1
 
-                logger.debug(
-                    f"Action: {command}({parameters}) -> {'OK' if success else 'FAIL'}: "
-                    f"{result.get('error', '')}"
-                )
+                # Log movement actions at INFO level for visibility
+                if command in ("MOVE_HERO", "OPEN_DOOR"):
+                    logger.info(
+                        f"Action: {command}({parameters}) -> {'OK' if success else 'FAIL'}"
+                        f"{': ' + result.get('error', '') if not success else ''}"
+                    )
+                else:
+                    logger.debug(
+                        f"Action: {command}({parameters}) -> {'OK' if success else 'FAIL'}: "
+                        f"{result.get('error', '')}"
+                    )
 
             except (ConnectionError, TimeoutError) as e:
                 logger.error(f"IPC error during action: {e}")

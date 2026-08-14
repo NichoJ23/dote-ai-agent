@@ -442,6 +442,18 @@ class RewardShaper:
                 if mobs_at_crystal:
                     reward += self.gl.hero_moved_to_crystal_defense
 
+        # Penalty for idling (WAIT or non-crystal MOVE) while mobs are in crystal room
+        crystal_room = curr.start_room_index
+        mobs_at_crystal = any(m.room_index == crystal_room for m in curr.mobs)
+        if mobs_at_crystal and curr.game_phase.is_combat:
+            is_defending = False
+            if action and action.get("command") == "MOVE_HERO" and result and result.get("success"):
+                target = action.get("parameters", {}).get("target_room_index", -1)
+                if target == crystal_room:
+                    is_defending = True
+            if not is_defending:
+                reward += self.gl.crystal_under_attack_idle
+
         return reward
 
     def _gl_equipment(

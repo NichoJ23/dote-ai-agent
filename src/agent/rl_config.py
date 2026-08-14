@@ -78,6 +78,7 @@ class GuidelineRewardWeights:
     hero_took_heavy_damage: float = -1.0
     hero_healed_wisely: float = 0.5
     hero_moved_to_crystal_defense: float = 5.0  # Hero moves to crystal room when mobs are there
+    crystal_under_attack_idle: float = -0.5     # Per step: WAIT or non-crystal MOVE while mobs in crystal room
     enabled_combat: bool = True
 
     # GL-EQUIPMENT: Equipment matching

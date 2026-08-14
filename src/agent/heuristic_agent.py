@@ -212,6 +212,13 @@ class HeuristicAgent(BaseAgent):
             if hero and hero.room_index == target:
                 logger.debug(f"Suppressed no-op move: {hero_name} already in room {target}")
                 return None
+            # Don't re-issue a move if we already sent one from this room
+            # (hero is still walking — wait for them to arrive or change room)
+            if hero_name in self._hero_busy:
+                busy_info = self._hero_busy[hero_name]
+                if busy_info.get("action") == "move" and busy_info.get("issued_from_room") == (hero.room_index if hero else None):
+                    logger.debug(f"Suppressed duplicate move: {hero_name} already moving from room {hero.room_index}")
+                    return None
             # Don't send move to a hero that's already busy during Strategy phase
             if state.game_phase.is_planning and hero_name in self._hero_busy:
                 logger.debug(f"Suppressed move for busy hero: {hero_name} (busy: {self._hero_busy[hero_name]})")
@@ -2144,6 +2151,14 @@ class HeuristicAgent(BaseAgent):
         if self._prev_state is not None and self._prev_state.game_phase.is_combat and state.game_phase.is_planning:
             if self._hero_busy:
                 logger.debug(f"Clearing all busy flags: new Strategy phase after combat")
+                self._hero_busy.clear()
+            return
+
+        # At the start of combat (Strategy -> Action transition), clear all busy
+        # flags so the DEFEND handler can freely reposition heroes.
+        if self._prev_state is not None and self._prev_state.game_phase.is_planning and state.game_phase.is_combat:
+            if self._hero_busy:
+                logger.debug(f"Clearing all busy flags: combat started")
                 self._hero_busy.clear()
             return
 

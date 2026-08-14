@@ -58,3 +58,11 @@ recordings/
 # Logs
 logs/
 *.log
+
+# Agent metrics (per-run JSON files, regenerated on each run)
+src/agent/metrics/
+
+# RL training outputs
+checkpoints/
+metrics/rl/
+metrics/rl_eval/

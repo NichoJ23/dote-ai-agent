@@ -52,6 +52,11 @@ class GameLauncher:
     - Querying menu state (available heroes, ships, saves)
     - Starting new games or continuing saved ones
     - Waiting for the dungeon to fully load
+
+    Training Mode:
+    - headless=True passes -batchmode -nographics to disable rendering entirely
+    - small_window=True launches with a tiny window (64x64) instead of headless
+    - These are mutually exclusive — headless takes priority
     """
 
     def __init__(
@@ -63,16 +68,21 @@ class GameLauncher:
         action_port: int = 5556,
         connect_timeout: float = 120.0,
         recv_timeout: float = 30.0,
+        headless: bool = False,
     ):
         """
         Args:
             game_path: Path to DungeonoftheEndless.exe. Auto-detected if None.
             use_steam: If True and game_path is None, launch via Steam protocol.
+                       Ignored if headless=True (headless requires direct exe launch).
             host: IPC host address.
             state_port: Port for state channel.
             action_port: Port for action channel.
             connect_timeout: Max seconds to wait for IPC connection after launch.
             recv_timeout: Timeout for individual IPC messages.
+            headless: If True, launch with -batchmode -nographics (no GPU rendering).
+                      Known to crash on Unity 5.0.3 — use training mode in
+                      dote_training.cfg instead for rendering optimizations.
         """
         self.game_path = game_path
         self.use_steam = use_steam
@@ -81,6 +91,7 @@ class GameLauncher:
         self.action_port = action_port
         self.connect_timeout = connect_timeout
         self.recv_timeout = recv_timeout
+        self.headless = headless
 
         self._ipc: Optional[IpcClient] = None
         self._process: Optional[subprocess.Popen] = None
@@ -343,7 +354,26 @@ class GameLauncher:
             return False
 
     def _launch_game(self) -> None:
-        """Launch the game executable."""
+        """Launch the game executable with optional headless/training flags."""
+        # Headless mode requires direct exe launch (can't pass args via Steam)
+        if self.headless:
+            exe_path = self._resolve_game_path()
+            if exe_path is None:
+                raise RuntimeError(
+                    "Could not find DungeonoftheEndless.exe. "
+                    "headless mode requires a direct exe path. "
+                    "Provide game_path or ensure game is installed in a standard location."
+                )
+
+            args = [str(exe_path), "-batchmode", "-nographics"]
+            print(f"GameLauncher: Launching HEADLESS (no GPU): {exe_path}")
+
+            self._process = subprocess.Popen(
+                args,
+                cwd=str(exe_path.parent),
+            )
+            return
+
         if self.use_steam and not self.game_path:
             # Launch via Steam protocol
             steam_url = f"steam://rungameid/{STEAM_APP_ID}"
@@ -354,7 +384,7 @@ class GameLauncher:
             )
             return
 
-        # Direct executable launch
+        # Direct executable launch (no extra args — mod handles training optimizations)
         exe_path = self._resolve_game_path()
         if exe_path is None:
             raise RuntimeError(

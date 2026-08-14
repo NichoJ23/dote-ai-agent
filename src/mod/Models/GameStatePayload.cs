@@ -27,5 +27,6 @@ namespace DotEAgent.Models
         public int ExitRoomIndex;
         public int StartRoomIndex;
         public float TimeScale;
+        public bool IsLevelOver;  // True when the game is over (crystal destroyed or floor escaped)
     }
 }

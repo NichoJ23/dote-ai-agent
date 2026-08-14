@@ -209,6 +209,7 @@ class GameStatePayload(BaseModel):
     researchable_blueprints: list[ResearchBlueprint] = Field(default_factory=list)
     buildable_blueprints: list[BuildableBlueprint] = Field(default_factory=list)
     time_scale: float = 1.0
+    is_level_over: bool = False  # True when game is definitively over (crystal destroyed or floor escaped)
 
     @field_validator("researchable_blueprints", mode="before")
     @classmethod
@@ -238,10 +239,14 @@ class GameStatePayload(BaseModel):
 
     @property
     def is_game_over(self) -> bool:
-        """True if crystal is destroyed (unplugged and no hero carrying it)."""
+        """True if the game is over (crystal destroyed)."""
+        # Primary check: the mod reports level is over and crystal is not on exit slot
+        # (exit slot = successful escape, not game over)
+        if self.is_level_over and self.crystal_state != "PluggedOnExitSlot":
+            return True
+        # Fallback: crystal is unplugged and no hero is carrying it
         if self.crystal_state != "Unplugged":
             return False
-        # If a hero is carrying it, it's not game over — just in transit
         return not any(h.has_crystal for h in self.heroes)
 
     @property

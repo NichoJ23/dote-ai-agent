@@ -97,6 +97,10 @@ namespace DotEAgent
             payload.ExitRoomIndex = dungeonState.ExitRoomIndex;
             payload.StartRoomIndex = dungeonState.StartRoomIndex;
             payload.TimeScale = UnityEngine.Time.timeScale;
+
+            // Check if level is over (game over or floor escaped)
+            Dungeon dungeonForLevelOver = SingletonManager.Get<Dungeon>(false);
+            payload.IsLevelOver = (dungeonForLevelOver != null && dungeonForLevelOver.IsLevelOver);
             payload.Resources = resources;
             payload.Rooms = dungeonState.Rooms;
             payload.ClosedDoors = dungeonState.ClosedDoors;

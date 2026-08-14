@@ -21,10 +21,7 @@ namespace DotEAgent.Hooks
 
         public object ExtractState()
         {
-            if (!IsBound)
-                return null;
-
-            // Re-acquire dungeon in case it changed between floors
+            // Always re-acquire dungeon singleton — it changes between floors
             dungeon = SingletonManager.Get<Dungeon>(false);
             if (dungeon == null)
                 return null;

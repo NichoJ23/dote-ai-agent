@@ -184,6 +184,7 @@ class HeuristicAgent(BaseAgent):
         # but haven't reached their final destination yet)
         action = self._continue_multi_hop_moves(state)
         if action:
+            logger.debug(f"Continuing multi-hop move (skipping decision tree)")
             return action
 
         # Delegate to phase handler
@@ -196,6 +197,7 @@ class HeuristicAgent(BaseAgent):
         else:
             # BUILD phase — the decision tree handles everything
             # including door opening (steps 1 and 10)
+            logger.debug(f"Entering BUILD decision tree (game_phase={state.game_phase}, rooms={len(state.rooms)})")
             action = self._handle_build(state)
 
         # Guard: never send MOVE_HERO to a room the hero is already in
@@ -212,6 +214,15 @@ class HeuristicAgent(BaseAgent):
                 logger.debug(f"Suppressed move for busy hero: {hero_name} (busy: {self._hero_busy[hero_name]})")
                 return None
 
+        if action and action.get("command") == "OPEN_DOOR":
+            hero_name = action["parameters"].get("hero_name")
+            target = action["parameters"].get("target_room_index")
+            # Don't send open door to a hero that's already busy
+            if state.game_phase.is_planning and hero_name in self._hero_busy:
+                logger.debug(f"Suppressed open_door for busy hero: {hero_name} (busy: {self._hero_busy[hero_name]})")
+                return None
+
+        self._prev_state = state
         return action
 
     def reset(self) -> None:
@@ -245,6 +256,28 @@ class HeuristicAgent(BaseAgent):
             elif cmd == "MOVE_HERO":
                 key = f"move:{params.get('hero_name')}:{params.get('target_room_index')}"
                 self._failed_actions.add(key)
+                # If hero is "not usable", mark them as temporarily busy
+                # so the agent stops trying to use them until next state update
+                error_msg = result.get("error", "")
+                if "not usable" in error_msg:
+                    hero_name = params.get("hero_name")
+                    if hero_name:
+                        self._hero_busy[hero_name] = {"action": "not_usable"}
+                        logger.debug(f"Hero {hero_name} marked temporarily busy (not usable)")
+            elif cmd == "OPEN_DOOR":
+                # Blacklist this specific door for this turn
+                from_room = params.get("from_room_index")
+                target = params.get("target_room_index")
+                if from_room is not None and target is not None:
+                    self._doors_opened_this_turn.add((from_room, target))
+                key = f"{cmd}:{params.get('hero_name')}"
+                self._failed_actions.add(key)
+                # Mark hero as not usable if that's the error
+                error_msg = result.get("error", "")
+                if "not usable" in error_msg:
+                    hero_name = params.get("hero_name")
+                    if hero_name:
+                        self._hero_busy[hero_name] = {"action": "not_usable"}
             else:
                 # Generic blacklist by command + first param value
                 key = f"{cmd}:{next(iter(params.values()), '')}"
@@ -269,9 +302,12 @@ class HeuristicAgent(BaseAgent):
                     self._hero_busy[hero_name] = {"action": "repair"}
                     logger.debug(f"Hero {hero_name} marked busy: repairing")
             elif cmd == "OPEN_DOOR":
-                # Hero enters the newly opened room — mark busy briefly
+                # Track successful door open and mark hero busy
                 hero_name = params.get("hero_name")
                 target = params.get("target_room_index")
+                from_room = params.get("from_room_index")
+                if from_room is not None and target is not None:
+                    self._doors_opened_this_turn.add((from_room, target))
                 if hero_name and target is not None:
                     self._hero_busy[hero_name] = {"action": "move", "target_room": target}
                     logger.debug(f"Hero {hero_name} marked busy: entering room {target} (door open)")
@@ -458,7 +494,6 @@ class HeuristicAgent(BaseAgent):
 
                 # If hero is already at the door's source room, open the door
                 if best_hero.room_index == from_room:
-                    self._doors_opened_this_turn.add((from_room, target_room))
                     return _action(
                         "OPEN_DOOR",
                         hero_name=best_hero.name,
@@ -502,7 +537,6 @@ class HeuristicAgent(BaseAgent):
                     None,
                 )
                 if hero_in_room:
-                    self._doors_opened_this_turn.add(door_key)
                     return _action(
                         "OPEN_DOOR",
                         hero_name=hero_in_room.name,
@@ -548,7 +582,6 @@ class HeuristicAgent(BaseAgent):
                     None,
                 )
                 if hero_in_room:
-                    self._doors_opened_this_turn.add(door_key)
                     return _action(
                         "OPEN_DOOR",
                         hero_name=hero_in_room.name,
@@ -569,7 +602,6 @@ class HeuristicAgent(BaseAgent):
                     # If no path through open doors, hero might already be in the room
                     # (only 1 room case — hero IS in from_room)
                     if closest.room_index == from_room:
-                        self._doors_opened_this_turn.add(door_key)
                         return _action(
                             "OPEN_DOOR",
                             hero_name=closest.name,
@@ -604,21 +636,25 @@ class HeuristicAgent(BaseAgent):
         # --- Step 1: Open door from crystal room ---
         action = self._macro_open_crystal_room_door(state)
         if action:
+            logger.info(f"Step 1: {action.get('command')} (crystal room door)")
             return action
 
         # --- Step 2: Power closest unpowered rooms with excess dust ---
         action = self._macro_power_rooms(state)
         if action:
+            logger.info(f"Step 2: Powering room {action['parameters'].get('room_index')}")
             return action
 
         # --- Step 3: Build one industry generator on newest room ---
         action = self._macro_build_industry(state)
         if action:
+            logger.info(f"Step 3: Building industry in room {action['parameters'].get('room_index')}")
             return action
 
         # --- Step 4: Build prisoner prods in room 1 ---
         action = self._macro_build_prisoner_prods(state)
         if action:
+            logger.info(f"Step 4: Building prisoner prod in room {action['parameters'].get('room_index')}")
             return action
 
         # --- Step 5: Research (most expensive affordable) ---
@@ -692,10 +728,11 @@ class HeuristicAgent(BaseAgent):
         if not has_crystal_door:
             return None
 
-        # Opening a door requires all heroes ready
+        # Opening a door requires all heroes ready — if they're busy,
+        # skip this step and let steps 2-4 (build/power) run instead.
         if not self._all_heroes_ready():
-            logger.debug("Waiting for all heroes to be ready before opening crystal room door")
-            return _wait()
+            logger.debug("Step 1 skip: heroes busy, letting build/power steps run")
+            return None
 
         for door in state.closed_doors:
             if door.room1_index == crystal_room or door.room2_index == crystal_room:
@@ -721,7 +758,6 @@ class HeuristicAgent(BaseAgent):
                         None,
                     )
                 if hero:
-                    self._doors_opened_this_turn.add(door_key)
                     return _action(
                         "OPEN_DOOR",
                         hero_name=hero.name,
@@ -735,7 +771,9 @@ class HeuristicAgent(BaseAgent):
         Step 2: Power closest unpowered rooms using excess dust.
         Excess dust = total dust - (powered_rooms * 10).
         """
+        logger.debug("Step 2 (power rooms): evaluating...")
         if state.resources is None:
+            logger.debug("  -> SKIP: resources is None")
             return None
 
         total_dust = state.resources.dust
@@ -743,6 +781,7 @@ class HeuristicAgent(BaseAgent):
         excess_dust = total_dust - (powered_count * self.DUST_PER_POWERED_ROOM)
 
         if excess_dust < self.DUST_PER_POWERED_ROOM:
+            logger.debug(f"  -> SKIP: excess_dust={excess_dust} < {self.DUST_PER_POWERED_ROOM} (dust={total_dust}, powered_rooms={powered_count})")
             return None
 
         # Find unpowered rooms, prefer closest to crystal room
@@ -753,6 +792,8 @@ class HeuristicAgent(BaseAgent):
             and not r.suffers_emp
         ]
         if not unpowered:
+            all_rooms_info = [(r.index, r.is_powered, r.is_auto_powered) for r in state.rooms]
+            logger.debug(f"  -> SKIP: no unpowered rooms. rooms(idx,pow,auto)={all_rooms_info}, powered_this_turn={self._powered_this_turn}")
             return None
 
         # Sort by distance to crystal room (use depth as proxy)
@@ -767,9 +808,12 @@ class HeuristicAgent(BaseAgent):
         Step 3: Build one industry generator on the newest discovered room
         (highest index) if no industry gen has been built on this floor yet.
         """
+        logger.debug("Step 3 (build industry): evaluating...")
         if self._built_industry_this_floor:
+            logger.debug("  -> SKIP: already built industry this floor")
             return None
         if state.resources is None:
+            logger.debug("  -> SKIP: resources is None")
             return None
 
         # Also check state in case we're resuming mid-floor
@@ -779,10 +823,12 @@ class HeuristicAgent(BaseAgent):
         )
         if has_industry:
             self._built_industry_this_floor = True
+            logger.debug("  -> SKIP: industry module already exists on this floor")
             return None
 
         # Can we afford it?
         if state.resources.industry < 10:
+            logger.debug(f"  -> SKIP: can't afford (industry={state.resources.industry}, need 10)")
             return None
 
         # Find the newest room (highest index) that has an empty major slot
@@ -795,6 +841,8 @@ class HeuristicAgent(BaseAgent):
             and f"{r.index}:major" not in self._failed_actions
         ]
         if not candidates:
+            rooms_info = [(r.index, r.major_module_name, r.is_start_room) for r in state.rooms]
+            logger.debug(f"  -> SKIP: no candidate rooms. rooms(idx,major,start)={rooms_info}")
             return None
 
         # Pick highest index (most recently discovered)
@@ -812,18 +860,23 @@ class HeuristicAgent(BaseAgent):
         Step 4: Build prisoner prods (minor turrets) in room 1 until
         all minor slots are full or we can't afford more.
         """
+        logger.debug("Step 4 (build prisoner prods): evaluating...")
         if state.resources is None:
+            logger.debug("  -> SKIP: resources is None")
             return None
         if state.resources.industry < 8:
+            logger.debug(f"  -> SKIP: can't afford (industry={state.resources.industry}, need 8)")
             return None
 
         # Find room 1 (first room opened from crystal room)
         room1 = next((r for r in state.rooms if r.index == 1), None)
         if room1 is None:
+            logger.debug(f"  -> SKIP: room 1 not found (rooms: {[r.index for r in state.rooms]})")
             return None
 
         minor_used = len(room1.minor_module_names)
         if minor_used >= room1.minor_slot_count:
+            logger.debug(f"  -> SKIP: room 1 minor slots full ({minor_used}/{room1.minor_slot_count})")
             return None  # All slots full
 
         room_key = f"1:minor:{minor_used}"
@@ -889,10 +942,9 @@ class HeuristicAgent(BaseAgent):
                         f"Dispatching {closest.name} to room {item.room_index} to pick up "
                         f"'{item.name}' (type={item.type}) — path: {path}"
                     )
-                    # Set busy flag to the FINAL destination (item's room),
-                    # not just the next hop. This prevents the decision tree from
-                    # reassigning the hero after each hop completes.
-                    self._hero_busy[closest.name] = {"action": "move", "target_room": item.room_index}
+                    # Don't pre-set busy flag here — let on_action_result handle it
+                    # on success. Pre-setting causes stuck busy flags when MOVE fails
+                    # (hero not usable), blocking the entire decision tree.
                     return _action(
                         "MOVE_HERO",
                         hero_name=closest.name,
@@ -1096,10 +1148,10 @@ class HeuristicAgent(BaseAgent):
         if not state.closed_doors:
             return None
 
-        # Opening a door requires all heroes ready
+        # Opening a door requires all heroes ready — if they're busy, skip.
         if not self._all_heroes_ready():
-            logger.debug("Waiting for all heroes to be ready before opening door")
-            return _wait()
+            logger.debug("Step 10 skip: heroes busy")
+            return None
 
         # Find exploration hero: prefer Max, fall back to any available
         explorer = next(
@@ -1134,7 +1186,6 @@ class HeuristicAgent(BaseAgent):
 
             if explorer_room == from_room:
                 # Explorer is confirmed at the door's source — open it
-                self._doors_opened_this_turn.add(door_key)
                 return _action(
                     "OPEN_DOOR",
                     hero_name=explorer.name,
@@ -2074,6 +2125,14 @@ class HeuristicAgent(BaseAgent):
                 self._hero_busy.clear()
             return
 
+        # At the start of a new Strategy phase (after combat ends), clear all
+        # busy flags so heroes are free to be reassigned for the new turn.
+        if self._prev_state is not None and self._prev_state.game_phase.is_combat and state.game_phase.is_planning:
+            if self._hero_busy:
+                logger.debug(f"Clearing all busy flags: new Strategy phase after combat")
+                self._hero_busy.clear()
+            return
+
         completed = []
         for hero_name, busy_info in self._hero_busy.items():
             hero = next((h for h in state.heroes if h.name == hero_name), None)
@@ -2130,6 +2189,10 @@ class HeuristicAgent(BaseAgent):
                 # Repair completes when the hero becomes usable again
                 # (we don't have isUsable in state, so clear after one state tick)
                 # The next state after a repair success should show it done
+                completed.append(hero_name)
+            elif action == "not_usable":
+                # Hero was not usable last tick — clear after one state update
+                # so we can try again. If still not usable, it'll get re-flagged.
                 completed.append(hero_name)
 
         for name in completed:

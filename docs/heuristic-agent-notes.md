@@ -4,11 +4,13 @@
 
 The heuristic agent can successfully:
 - Start a new game via IPC
-- Play through floor 1 (open doors, build modules, fight, research, buy from merchants)
+- Play through multiple floors (open doors, build modules, fight, research, buy from merchants)
 - Initiate escape sequence (depower, repower escape path, send Gork to exit, Max picks up crystal, moves to exit, plugs crystal)
-- Transition to floor 2 via NEXT_FLOOR command
+- Transition between floors via NEXT_FLOOR command
+- Restart games after game over (RETURN_TO_MENU → START_NEW_GAME)
+- Run multiple games autonomously via `--max-runs` flag
 
-Branch: `heuristic-agent` on GitHub (NichoJ23/dote-ai-agent)
+Branch: merged to `main` on GitHub (NichoJ23/dote-ai-agent)
 
 ## Architecture
 
@@ -167,3 +169,54 @@ Replaced the old blocking wait pattern (`_wait_for_hero_arrival`, `_wait_for_ite
 ### Combat Healing
 - `_try_heal_in_combat()` heals most wounded hero (below 30% HP) using up to half available food
 - Runs at top of both `_handle_defend` and `_handle_retreat`
+
+## Game Restart & Multi-Run System
+
+### RETURN_TO_MENU Command
+- Calls `IGameControlService.GoBackToMainMenu(true)` — handles everything: dismisses GameOverPanel, JournalPanel (highscores), transitions RuntimeState to OutGame, shows MainMenuPanel
+- No need to click through 3 separate screens — one call does it all
+- Python side waits 5s for game-over screen to appear, sends RETURN_TO_MENU, drains state, waits 5s for menu, verifies via QUERY_MENU_STATE
+
+### is_level_over Detection
+- Added `Dungeon.IsLevelOver` to the state payload (`is_level_over` field)
+- `is_game_over` now checks `is_level_over && crystal_state != "PluggedOnExitSlot"` as primary signal
+- Fallback: `crystal_state == "Unplugged" && no hero carrying crystal`
+- Previous approach relied solely on crystal_state, which was unreliable during the game-over transition
+
+### Multi-Run Loop (`--max-runs`)
+- `AgentRunner.run()` has an outer loop over runs
+- On game_over: waits → RETURN_TO_MENU → drains state → verifies menu → START_NEW_GAME → wait_for_dungeon
+- Each run gets its own RunMetrics saved independently
+- IPC connection is reused across runs (mod stays running)
+
+## Challenges Encountered During Multi-Floor/Multi-Run Implementation (Critical for RL Agent)
+
+### 11. ResourceHook Returns Null After Floor Transitions
+The `ResourceHook` cached its `dungeon` reference and checked `IsBound` (which tested the old cached ref) BEFORE re-fetching the new singleton. After floor transitions, the old dungeon is destroyed/replaced, so `IsBound` returned false and `ExtractState()` returned null.
+- **Solution**: Removed the `IsBound` early-out. Always re-fetch the dungeon singleton at the top of `ExtractState()`.
+- **RL implication**: Any hook that caches game singletons must re-acquire them on every extraction call. Floor transitions and game restarts replace the Dungeon singleton entirely. Never trust cached references across floor boundaries.
+
+### 12. Pre-Setting Busy Flags Before Action Confirmation Causes Stuck States
+The `_macro_collect_items` step pre-set `_hero_busy` before the MOVE_HERO action was sent to the game. When the action failed (hero "not usable"), the busy flag remained stuck forever. `_continue_multi_hop_moves()` (which runs BEFORE the decision tree) would find the stuck busy flag and keep issuing MOVE_HERO, completely blocking the rest of the decision tree from running.
+- **Solution**: Never pre-set busy flags. Only set them in `on_action_result()` when the action succeeds. When actions fail with "not usable", set a temporary `"not_usable"` flag that auto-clears on the next state update.
+- **RL implication**: The RL agent's internal state tracking must be purely reactive (updated after confirmed outcomes), never predictive. Optimistic state updates that assume success will create unrecoverable stuck states when actions fail.
+
+### 13. WAIT Sentinel Blocks the Entire Decision Tree
+Steps 1 and 10 (door opening) returned a WAIT sentinel when heroes were busy. The runner treated WAIT as "do nothing, wait for state." This meant that while a hero was in transit (even for 1-2 seconds after a door open), the ENTIRE decision tree was blocked — steps 2-4 (power rooms, build modules) couldn't run even though they don't need heroes.
+- **Solution**: Changed steps 1 and 10 to return `None` (skip) instead of WAIT when heroes are busy. This lets the decision tree fall through to steps that don't need heroes (power, build). Door opening resumes when heroes are ready.
+- **RL implication**: The RL agent's action selection must never block the entire action space just because ONE sub-task is waiting. Hero movement and module building are independent — they should be dispatchable in parallel. Design the action space so that "wait for hero" doesn't prevent "build module in room X."
+
+### 14. Python Logging Config: Root Logger Gates File Handler
+The root logger was set to INFO, so debug messages were discarded before reaching the file handler (even though `file_handler.setLevel(DEBUG)` was set). This made debugging impossible — diagnostic logs simply didn't appear.
+- **Solution**: Set root logger to DEBUG unconditionally. Let each handler filter independently (console at INFO, file at DEBUG).
+- **RL implication**: Always capture full debug logs to file during training. You'll need them to diagnose subtle state/timing issues.
+
+### 15. Door Opens Advance Turns, Clearing Per-Turn Tracking
+Each OPEN_DOOR increments the game turn. The runner detects the turn change and calls `new_turn()` which clears `_doors_opened_this_turn`. This meant step 1 could open multiple crystal room doors in rapid succession (each clear allowed the next), never giving steps 2-4 a chance to run between doors.
+- **Solution**: Combined with fix #13 — after a door open, the hero is busy (entering new room), so step 1 skips (returns None), letting build/power steps run. When the hero's flag clears (next Strategy phase after combat), step 1 can open the next door.
+- **RL implication**: The RL environment must decide: does each door open count as one `step()`, or should the agent be able to issue multiple actions per turn? If multiple actions per turn, the reward shaping must not incentivize opening all doors before building defenses.
+
+### 16. Game Over Detection Requires is_level_over
+Relying on `crystal_state == "Unplugged"` alone is insufficient. When the crystal module is destroyed by mobs in its room, the game transitions to game-over directly. The mod may not push a state with `Unplugged` before the game-over screen appears (the state extraction fails once the dungeon starts tearing down).
+- **Solution**: Added `Dungeon.IsLevelOver` to the wire format. Python checks this as the primary game-over signal.
+- **RL implication**: The RL environment must use `is_level_over` to detect episode termination. Don't rely on crystal_state alone — it's a secondary/backup signal.

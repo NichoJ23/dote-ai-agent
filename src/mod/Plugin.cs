@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using Amplitude;
 using Amplitude.Unity.Framework;
 using BepInEx;
@@ -31,14 +32,42 @@ namespace DotEAgent
         private float actionTimeoutSeconds = 30f;
         private bool pausedForTimeout = false;
 
+        // Training mode settings (read from BepInEx/plugins/dote_training.cfg)
+        private bool trainingMode = false;
+        private float targetTimeScale = 2f;
+        private int trainingResWidth = 640;
+        private int trainingResHeight = 480;
+
         private void Awake()
         {
             Log = Logger;
             Log.LogInfo(PluginName + " v" + PluginVersion + " loaded!");
 
-            // Speed up game for faster testing
-            Time.timeScale = 2f;
-            Log.LogInfo("Game speed set to 2x");
+            // CRITICAL: Force runInBackground immediately before anything else.
+            // Without this, Unity stops the game loop when the window loses focus,
+            // which causes the game to "crash" (actually just freeze) when unfocused.
+            // Must be set before the game's own code has a chance to override it.
+            UnityEngine.Application.runInBackground = true;
+
+            // Load training config from a simple text file next to the plugin DLL
+            // File: BepInEx/plugins/dote_training.cfg
+            // Format:
+            //   training_mode=true
+            //   time_scale=4
+            LoadTrainingConfig();
+
+            if (trainingMode)
+            {
+                ApplyTrainingMode();
+            }
+            else
+            {
+                // Normal mode: just apply time scale, and restore fullscreen
+                // (in case a previous training session left resolution in a bad state)
+                Time.timeScale = targetTimeScale;
+                Screen.fullScreen = true;
+                Log.LogInfo("Game speed set to " + targetTimeScale + "x (normal mode)");
+            }
 
             stateManager = new StateManager();
 
@@ -71,14 +100,29 @@ namespace DotEAgent
             actionRouter.RegisterHandler(new MenuActionHandler("QUERY_MENU_STATE"));
             actionRouter.RegisterHandler(new MenuActionHandler("START_NEW_GAME"));
             actionRouter.RegisterHandler(new MenuActionHandler("CONTINUE_GAME"));
+            actionRouter.RegisterHandler(new ReturnToMenuHandler());
         }
 
         private void Update()
         {
             // Enforce game speed every frame (game resets timeScale on unpause/transitions)
-            if (Time.timeScale != 0f && Time.timeScale != 2f)
+            if (Time.timeScale != 0f && Time.timeScale != targetTimeScale)
             {
-                Time.timeScale = 2f;
+                Time.timeScale = targetTimeScale;
+            }
+
+            // In training mode, keep enforcing windowed resolution and runInBackground
+            // because the game's own code re-applies fullscreen on scene loads
+            // and may disable runInBackground
+            if (trainingMode)
+            {
+                if (Screen.fullScreen)
+                {
+                    Screen.fullScreen = false;
+                    Screen.SetResolution(trainingResWidth, trainingResHeight, false);
+                }
+                // Must enforce every frame — game code resets this
+                UnityEngine.Application.runInBackground = true;
             }
 
             // Always accept IPC clients and process actions (even before dungeon loads)
@@ -193,6 +237,166 @@ namespace DotEAgent
             {
                 ipcBridge.Dispose();
                 ipcBridge = null;
+            }
+        }
+
+        /// <summary>
+        /// Apply all training-mode optimizations to minimize GPU/CPU overhead.
+        /// Called once in Awake() when Training.Enabled = true in config.
+        /// </summary>
+        private void ApplyTrainingMode()
+        {
+            Log.LogInfo("=== TRAINING MODE ENABLED ===");
+
+            // 1. Uncap framerate (remove VSync bottleneck)
+            QualitySettings.vSyncCount = 0;
+            UnityEngine.Application.targetFrameRate = -1;  // Uncapped
+            Log.LogInfo("  VSync disabled, framerate uncapped");
+
+            // 2. Drop to lowest quality level
+            QualitySettings.SetQualityLevel(0, true);
+            Log.LogInfo("  Quality set to lowest level");
+
+            // 3. Disable shadows (via distance = 0 for Unity 5.0.3 compatibility)
+            QualitySettings.shadowDistance = 0f;
+            Log.LogInfo("  Shadows disabled (distance=0)");
+
+            // 4. Disable anti-aliasing
+            QualitySettings.antiAliasing = 0;
+            Log.LogInfo("  Anti-aliasing disabled");
+
+            // 5. Reduce texture quality (1/8 res)
+            QualitySettings.masterTextureLimit = 3;
+            Log.LogInfo("  Texture resolution reduced to 1/8");
+
+            // 6. Disable particle raycast budget
+            QualitySettings.particleRaycastBudget = 0;
+            Log.LogInfo("  Particle raycast budget set to 0");
+
+            // 7. Reduce pixel light count
+            QualitySettings.pixelLightCount = 0;
+            Log.LogInfo("  Pixel light count set to 0");
+
+            // 9. Mute audio (saves CPU on mixing/decoding)
+            AudioListener.volume = 0f;
+            AudioListener.pause = true;
+            Log.LogInfo("  Audio muted and paused");
+
+            // 10. Force the game to keep running when unfocused (critical for training —
+            // without this, Unity suspends the game loop when the window loses focus)
+            UnityEngine.Application.runInBackground = true;
+            Log.LogInfo("  runInBackground enabled (game won't freeze when unfocused)");
+
+            // 11. Force small windowed mode (reduces pixel fill dramatically)
+            // Note: also re-applied in Update() because the game overrides this during loading
+            Screen.SetResolution(trainingResWidth, trainingResHeight, false);
+            Log.LogInfo("  Resolution forced to " + trainingResWidth + "x" + trainingResHeight + " windowed");
+
+            // 11. Apply game speed
+            Time.timeScale = targetTimeScale;
+            Log.LogInfo("  Game speed set to " + targetTimeScale + "x");
+
+            // 10. Try to stop particle systems to save GPU draw calls
+            try
+            {
+                ParticleSystem[] particles = Object.FindObjectsOfType<ParticleSystem>();
+                foreach (ParticleSystem ps in particles)
+                {
+                    ps.Stop();
+                }
+                Log.LogInfo("  Stopped " + particles.Length + " particle systems");
+            }
+            catch (System.Exception ex)
+            {
+                Log.LogWarning("  Could not stop particles: " + ex.Message);
+            }
+
+            Log.LogInfo("=== Training mode active: GPU usage minimized ===");
+        }
+
+        /// <summary>
+        /// Load training configuration from a simple key=value text file.
+        /// File location: BepInEx/plugins/dote_training.cfg
+        /// </summary>
+        private void LoadTrainingConfig()
+        {
+            string pluginDir = System.IO.Path.GetDirectoryName(
+                typeof(Plugin).Assembly.Location);
+            string cfgPath = System.IO.Path.Combine(pluginDir, "dote_training.cfg");
+
+            if (!File.Exists(cfgPath))
+            {
+                // Create a default config file for convenience
+                try
+                {
+                    File.WriteAllText(cfgPath,
+                        "# DotE Agent Training Configuration\n" +
+                        "# Set training_mode=true to enable all GPU/CPU optimizations\n" +
+                        "# time_scale: game speed multiplier (2=default, 4-8 for training)\n" +
+                        "# resolution_width/height: window size in training mode (smaller = less GPU)\n" +
+                        "#   640x480 = safe, 100x100 = minimal GPU, 64x64 = experimental\n" +
+                        "\n" +
+                        "training_mode=false\n" +
+                        "time_scale=2\n" +
+                        "resolution_width=640\n" +
+                        "resolution_height=480\n");
+                    Log.LogInfo("Created default config: " + cfgPath);
+                }
+                catch (System.Exception ex)
+                {
+                    Log.LogWarning("Could not create config file: " + ex.Message);
+                }
+                return;
+            }
+
+            try
+            {
+                string[] lines = File.ReadAllLines(cfgPath);
+                foreach (string line in lines)
+                {
+                    string trimmed = line.Trim();
+                    if (trimmed.StartsWith("#") || !trimmed.Contains("="))
+                        continue;
+
+                    string[] parts = trimmed.Split(new char[] { '=' }, 2);
+                    string key = parts[0].Trim().ToLower();
+                    string value = parts[1].Trim().ToLower();
+
+                    if (key == "training_mode")
+                    {
+                        trainingMode = (value == "true" || value == "1" || value == "yes");
+                    }
+                    else if (key == "time_scale")
+                    {
+                        float parsed;
+                        if (float.TryParse(value, out parsed) && parsed > 0f)
+                        {
+                            targetTimeScale = parsed;
+                        }
+                    }
+                    else if (key == "resolution_width")
+                    {
+                        int parsed;
+                        if (int.TryParse(value, out parsed) && parsed > 0)
+                        {
+                            trainingResWidth = parsed;
+                        }
+                    }
+                    else if (key == "resolution_height")
+                    {
+                        int parsed;
+                        if (int.TryParse(value, out parsed) && parsed > 0)
+                        {
+                            trainingResHeight = parsed;
+                        }
+                    }
+                }
+
+                Log.LogInfo("Config loaded: training_mode=" + trainingMode + ", time_scale=" + targetTimeScale);
+            }
+            catch (System.Exception ex)
+            {
+                Log.LogWarning("Failed to read config: " + ex.Message);
             }
         }
 

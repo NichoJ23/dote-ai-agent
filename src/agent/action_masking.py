@@ -279,8 +279,15 @@ class ActionMaskComputer:
             return False
         if state.resources.food <= 0:
             return False
-        # Need at least one hero below max HP
-        return any(h.hp < h.max_hp for h in state.heroes)
+        # Need at least one hero below max HP whose heal cost we can afford
+        for h in state.heroes:
+            if h.hp < h.max_hp:
+                if h.heal_cost > 0 and state.resources.food >= h.heal_cost:
+                    return True
+                elif h.heal_cost == 0:
+                    # heal_cost not exposed yet — just check food > 0
+                    return True
+        return False
 
     def _can_initiate_escape(self, state: GameStatePayload) -> bool:
         """Can we start the escape sequence?"""

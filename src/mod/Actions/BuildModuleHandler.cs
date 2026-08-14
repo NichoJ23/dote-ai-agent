@@ -41,6 +41,28 @@ namespace DotEAgent.Actions
             if (!room.IsFullyOpened)
                 return "Room " + roomIndex + " is not fully opened";
 
+            // Validate blueprint exists
+            BluePrintConfig bpConfig = Databases.GetDatabase<BluePrintConfig>(false).GetValue(moduleName);
+            if (bpConfig == null)
+                return "Unknown module blueprint: " + moduleName;
+
+            // Check slot availability
+            bool isMajor = bpConfig.ModuleCategory == ModuleCategory.MajorModule
+                        || bpConfig.ModuleCategory == ModuleCategory.SpecialModule;
+
+            if (isMajor)
+            {
+                if (room.MajorModule != null)
+                    return "Room " + roomIndex + " already has a major module";
+            }
+            else
+            {
+                int minorCount = room.MinorModules != null ? room.MinorModules.Count : 0;
+                int minorSlots = room.MinorModuleSlots != null ? room.MinorModuleSlots.Count : 0;
+                if (minorCount >= minorSlots)
+                    return "Room " + roomIndex + " has no available minor slots (" + minorCount + "/" + minorSlots + ")";
+            }
+
             return null;
         }
 
@@ -54,14 +76,7 @@ namespace DotEAgent.Actions
             GameNetworkManager netManager = SingletonManager.Get<GameNetworkManager>(true);
             ulong playerID = netManager.GetLocalPlayerID();
 
-            // Validate blueprint exists before calling BuildModule
-            BluePrintConfig bpConfig = Databases.GetDatabase<BluePrintConfig>(false).GetValue(moduleName);
-            if (bpConfig == null)
-                return ActionResult.Fail("Unknown module blueprint: " + moduleName);
-
-            // BuildModule(StaticString bpName, ulong builderPlayerID, bool instantBuild,
-            //             bool restoration, bool checkRoomPower, bool consumeIndustry, float health)
-            // StaticString has implicit conversion from string
+            // Build the module (preconditions already validated)
             room.BuildModule(moduleName, playerID, false, false, true, true, -1f);
 
             var metadata = new Dictionary<string, object>();

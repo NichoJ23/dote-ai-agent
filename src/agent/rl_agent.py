@@ -67,8 +67,9 @@ class RLAgent(BaseAgent):
         self.micro_net = MicroControllerNetwork(self.config.network).to(self.device)
         self.escape_net = EscapeControllerNetwork(self.config.network).to(self.device)
 
-        # Action masking
-        self._mask_computer = ActionMaskComputer()
+        # Action masking — disable DESTROY_MODULE in early curriculum stages
+        disable_destroy = self.config.curriculum.stages[self.config.curriculum.current_stage_index].guideline_shaping_enabled
+        self._mask_computer = ActionMaskComputer(disable_destroy_module=disable_destroy)
 
         # Internal state
         self._escape_initiated = False
@@ -339,7 +340,7 @@ class RLAgent(BaseAgent):
                 float(len(hero.equipment)),      # 11
                 float(faction_map.get(hero.faction, 0)),  # 12
                 weapon_class_id,                 # 13
-                0.0,                             # 14: level_up_cost (approximate)
+                float(hero.level_up_cost),       # 14: level_up_cost
                 0.0,                             # 15: dist_to_exit (simplified)
                 0.0,                             # 16: dist_to_crystal (simplified)
                 float(hero.is_gathering_item),   # 17

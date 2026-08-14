@@ -333,7 +333,10 @@ class TestGLCombat:
         action = {"command": "HEAL_HERO", "parameters": {"hero_name": "Max"}}
         result = {"success": True}
         reward = shaper.compute_reward(prev, curr, action, result)
-        assert reward >= shaper.gl.hero_healed_wisely
+        # heal_penalty(-2.0) + successful_action(+0.1) + hero_healed_wisely(+0.5) = -1.4
+        # The key check: reward is better than healing WITHOUT the wisely bonus
+        reward_without_wisely = shaper.core.heal_hero_penalty + shaper.core.successful_action
+        assert reward > reward_without_wisely  # Wisely bonus makes it less negative
 
 
 # ---------------------------------------------------------------------------

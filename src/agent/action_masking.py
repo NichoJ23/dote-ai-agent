@@ -67,6 +67,14 @@ class ActionMaskComputer:
       - Whether opening another door is too risky
     """
 
+    def __init__(self, disable_destroy_module: bool = False):
+        """
+        Args:
+            disable_destroy_module: If True, DESTROY_MODULE is always masked.
+                                   Useful for early curriculum stages.
+        """
+        self._disable_destroy_module = disable_destroy_module
+
     def compute_mask(self, state: GameStatePayload) -> np.ndarray:
         """
         Compute the action validity mask.
@@ -93,7 +101,7 @@ class ActionMaskComputer:
         mask[StrategicOption.POWER_ROOM] = self._can_power_room(state)
         mask[StrategicOption.DEPOWER_ROOM] = self._can_depower_room(state)
         mask[StrategicOption.BUILD_MODULE] = self._can_build_module(state)
-        mask[StrategicOption.DESTROY_MODULE] = self._can_destroy_module(state)
+        mask[StrategicOption.DESTROY_MODULE] = self._can_destroy_module(state) and not self._disable_destroy_module
         mask[StrategicOption.RESEARCH] = self._can_research(state)
         mask[StrategicOption.RECRUIT_HERO] = self._can_recruit(state)
         mask[StrategicOption.DISMISS_HERO] = self._can_dismiss(state)
@@ -201,16 +209,18 @@ class ActionMaskComputer:
         return len(state.heroes) > 1
 
     def _can_level_up(self, state: GameStatePayload) -> bool:
-        """Can we level up at least one hero?"""
+        """Can we level up at least one hero? Hero must not be max level and we must afford it."""
         if not state.resources:
             return False
         if state.resources.food <= 0:
             return False
-        # Check if any hero has a known level_up_cost we can afford
-        # The state doesn't always expose level_up_cost directly;
-        # use a heuristic: level_up_cost ~ level * 10 food (rough)
-        # For now, just check food > 0 and heroes exist
-        return len(state.heroes) > 0
+        if not state.heroes:
+            return False
+        # A hero can be leveled if level_up_cost > 0 (0 = max level) and we can afford it
+        return any(
+            h.level_up_cost > 0 and state.resources.food >= h.level_up_cost
+            for h in state.heroes
+        )
 
     def _can_buy_item(self, state: GameStatePayload) -> bool:
         """Can we buy from at least one merchant?"""

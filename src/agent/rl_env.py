@@ -105,7 +105,11 @@ class RLEnv(gym.Env):
         # Components
         self._parser = StateParser()
         self._graph_builder = GraphBuilder()
-        self._mask_computer = ActionMaskComputer()
+        # Disable DESTROY_MODULE in early curriculum stages (guideline_shaping_enabled = early training)
+        curr_stage = self._config.curriculum.stages[self._config.curriculum.current_stage_index]
+        self._mask_computer = ActionMaskComputer(
+            disable_destroy_module=curr_stage.guideline_shaping_enabled
+        )
         self._reward_shaper = RewardShaper(self._config.rewards)
 
         # State
@@ -786,7 +790,7 @@ class RLEnv(gym.Env):
                 float(len(hero.equipment)),      # 11
                 float(faction_map.get(hero.faction, 0)),  # 12
                 weapon_class_id,                 # 13
-                0.0,  # level_up_cost (approximate)               # 14
+                float(hero.level_up_cost),       # 14: food cost to next level
                 float(dist_to_exit_h),           # 15
                 float(dist_to_crystal_h),        # 16
                 float(hero.is_gathering_item),   # 17

@@ -177,7 +177,10 @@ class RewardShaper:
         curr_dust = curr.resources.dust if curr.resources else 0
         dust_delta = curr_dust - prev_dust
         if dust_delta > 0:
-            reward += self.core.dust_collected_per_unit * dust_delta
+            # Don't reward dust "gained" from depowering a room (that's just freed dust, not collected)
+            was_depower = (action and action.get("command") == "UNPOWER_ROOM" and result and result.get("success"))
+            if not was_depower:
+                reward += self.core.dust_collected_per_unit * dust_delta
         elif dust_delta < 0:
             # Dust lost (mobs hitting crystal) — don't penalize if agent spent dust on powering
             was_power_action = (action and action.get("command") == "POWER_ROOM" and result and result.get("success"))
@@ -341,6 +344,16 @@ class RewardShaper:
             if prev_hero and prev_hero.max_hp > 0:
                 if (prev_hero.hp / prev_hero.max_hp) < 0.3:
                     reward += self.gl.hero_healed_wisely
+
+        # Hero moved to crystal room to defend against mobs
+        if action and action.get("command") == "MOVE_HERO" and result and result.get("success"):
+            target_room = action.get("parameters", {}).get("target_room_index", -1)
+            crystal_room = curr.start_room_index
+            if target_room == crystal_room:
+                # Check if there are mobs in or near the crystal room
+                mobs_at_crystal = any(m.room_index == crystal_room for m in curr.mobs)
+                if mobs_at_crystal:
+                    reward += self.gl.hero_moved_to_crystal_defense
 
         return reward
 

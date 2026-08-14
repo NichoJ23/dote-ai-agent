@@ -51,10 +51,12 @@ def _base_state(**overrides) -> GameStatePayload:
         "heroes": [
             {"name": "Max", "room_index": 0, "hp": 100, "max_hp": 100, "level": 2,
              "faction": "Prisoner", "is_usable": True,
-             "equipment": [{"slot_category": "Weapon", "item_name": "Sword"}]},
+             "equipment": [{"slot_category": "Weapon", "item_name": "Sword"}],
+             "level_up_cost": 20},
             {"name": "Gork", "room_index": 1, "hp": 80, "max_hp": 100, "level": 1,
              "faction": "Native", "is_usable": True,
-             "equipment": [{"slot_category": "Weapon", "item_name": None}]},
+             "equipment": [{"slot_category": "Weapon", "item_name": None}],
+             "level_up_cost": 10},
         ],
         "mobs": [],
         "merchants": [

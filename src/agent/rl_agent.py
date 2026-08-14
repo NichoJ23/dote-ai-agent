@@ -485,6 +485,16 @@ class RLAgent(BaseAgent):
             self._escape_initiated = True
             return {"command": "PICK_UP_CRYSTAL", "parameters": {"hero_name": hero_name or ""}}
 
+        elif option == StrategicOption.COLLECT_ITEM:
+            # Move hero to room with dropped item; agent tracks busy until pickup done
+            item_room = 0
+            if state.dropped_items:
+                idx = entity_target % len(state.dropped_items)
+                item_room = state.dropped_items[idx].room_index
+            return {"command": "MOVE_HERO", "parameters": {
+                "hero_name": hero_name or "", "target_room_index": item_room
+            }}
+
         return None
 
     # ------------------------------------------------------------------

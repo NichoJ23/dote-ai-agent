@@ -40,7 +40,8 @@ class StrategicOption(IntEnum):
     OPEN_DOOR = 12
     HEAL_HERO = 13
     INITIATE_ESCAPE = 14
-    WAIT = 15
+    COLLECT_ITEM = 15
+    WAIT = 16
 
 
 NUM_OPTIONS = len(StrategicOption)
@@ -104,6 +105,7 @@ class ActionMaskComputer:
         mask[StrategicOption.OPEN_DOOR] = self._can_open_door(state)
         mask[StrategicOption.HEAL_HERO] = self._can_heal(state)
         mask[StrategicOption.INITIATE_ESCAPE] = self._can_initiate_escape(state)
+        mask[StrategicOption.COLLECT_ITEM] = self._can_collect_item(state)
 
         return mask
 
@@ -275,6 +277,14 @@ class ActionMaskComputer:
             return False
         # Can't already be escaping
         if state.is_escaping:
+            return False
+        # Need at least one usable hero
+        return any(h.is_usable for h in state.heroes)
+
+    def _can_collect_item(self, state: GameStatePayload) -> bool:
+        """Can we send a hero to collect dropped items?"""
+        # Need dropped items on the floor
+        if not state.dropped_items:
             return False
         # Need at least one usable hero
         return any(h.is_usable for h in state.heroes)

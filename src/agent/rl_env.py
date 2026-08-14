@@ -118,6 +118,10 @@ class RLEnv(gym.Env):
         # Hero movement tracking: hero_name -> target_room_index
         self._hero_move_targets: dict[str, int] = {}
 
+        # Hero collection tracking: hero_name -> item_room_index
+        # Hero stays busy until is_gathering_item goes false after arriving
+        self._hero_collecting: dict[str, int] = {}
+
         # --- Observation space ---
         self.observation_space = spaces.Dict({
             "adjacency": spaces.Box(0, 1, (MAX_ROOMS, MAX_ROOMS), dtype=np.int8),
@@ -164,6 +168,7 @@ class RLEnv(gym.Env):
         self._step_count = 0
         self._episode_reward = 0.0
         self._hero_move_targets.clear()
+        self._hero_collecting.clear()
 
         obs = self._build_observation(self._current_state)
         info = self._build_info(self._current_state)
@@ -373,6 +378,18 @@ class RLEnv(gym.Env):
             # via subsequent actions (move carrier to exit, plug crystal)
             return "PICK_UP_CRYSTAL", {"hero_name": hero_name}
 
+        elif option == StrategicOption.COLLECT_ITEM:
+            # Move hero to the room with the item; mark as busy until pickup completes
+            # The hero must stand idle in the room for ~2s for auto-collection
+            item_room = self._resolve_item_room(entity_target)
+            self._hero_move_targets[hero_name] = item_room
+            # Tag this as a collection move so we know to keep hero idle after arrival
+            self._hero_collecting[hero_name] = item_room
+            return "MOVE_HERO", {
+                "hero_name": hero_name,
+                "target_room_index": item_room,
+            }
+
         return "WAIT", {}
 
     # ------------------------------------------------------------------
@@ -443,6 +460,14 @@ class RLEnv(gym.Env):
         idx = idx % len(all_items)
         return all_items[idx].name
 
+    def _resolve_item_room(self, idx: int) -> int:
+        """Resolve entity_target to the room_index of a dropped item."""
+        if not self._current_state or not self._current_state.dropped_items:
+            return 0
+        items = self._current_state.dropped_items
+        idx = idx % len(items)
+        return items[idx].room_index
+
     # ------------------------------------------------------------------
     # Movement Tracking
     # ------------------------------------------------------------------
@@ -457,7 +482,16 @@ class RLEnv(gym.Env):
                 (h for h in self._current_state.heroes if h.name == hero_name), None
             )
             if hero and hero.room_index == target_room:
-                arrived.append(hero_name)
+                # If this hero is collecting, don't clear the move target yet —
+                # keep them busy until is_gathering_item goes false
+                if hero_name in self._hero_collecting:
+                    if not hero.is_gathering_item:
+                        # Pickup complete (or never started — items may already be gone)
+                        arrived.append(hero_name)
+                        del self._hero_collecting[hero_name]
+                    # else: still gathering, stay busy
+                else:
+                    arrived.append(hero_name)
         for name in arrived:
             del self._hero_move_targets[name]
 

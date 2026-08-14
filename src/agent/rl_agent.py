@@ -302,18 +302,45 @@ class RLAgent(BaseAgent):
         # Hero features
         hero_features = np.full((MAX_HEROES, HERO_FEATURE_DIM), -1.0, dtype=np.float32)
         faction_map = {"Other": 0, "Guard": 1, "Prisoner": 2, "Native": 3}
+        weapon_class_map = {"Melee": 1, "Ranged": 2, "Support": 3}
         for i, hero in enumerate(state.heroes[:MAX_HEROES]):
             hp_ratio = hero.hp / hero.max_hp if hero.max_hp > 0 else 0.0
             has_operate = 1.0 if any(p.name == "Operate" for p in hero.passive_skills) else 0.0
             has_repair = 1.0 if any(p.name == "Repair" for p in hero.passive_skills) else 0.0
+            weapon_class_id = float(weapon_class_map.get(hero.weapon_class or "", 0))
+
+            # Skill tree derived features
+            total_skills = float(len(hero.skill_tree)) if hero.skill_tree else 0.0
+            unlocked_skills = float(sum(1 for e in hero.skill_tree if e.is_unlocked)) if hero.skill_tree else 0.0
+            next_unlock = 0.0
+            if hero.skill_tree:
+                future = [e.unlock_hero_level for e in hero.skill_tree if not e.is_unlocked]
+                if future:
+                    next_unlock = float(min(future))
+
             hero_features[i] = [
-                float(hero.room_index), hp_ratio, float(hero.level),
-                float(hero.has_crystal), float(hero.is_operating),
-                0.0, float(hero.is_usable),
-                float(len(hero.passive_skills)), has_operate, has_repair,
-                float(len(hero.active_skills)), float(len(hero.equipment)),
-                float(faction_map.get(hero.faction, 0)),
-                0.0, 0.0, 0.0, 0.0, float(hero.is_gathering_item),
+                float(hero.room_index),          # 0
+                hp_ratio,                        # 1
+                float(hero.level),               # 2
+                float(hero.has_crystal),         # 3
+                float(hero.is_operating),        # 4
+                0.0,                             # 5: is_busy (simplified — no move tracking in agent)
+                float(hero.is_usable),           # 6
+                float(len(hero.passive_skills)), # 7
+                has_operate,                     # 8
+                has_repair,                      # 9
+                float(len(hero.active_skills)),  # 10
+                float(len(hero.equipment)),      # 11
+                float(faction_map.get(hero.faction, 0)),  # 12
+                weapon_class_id,                 # 13
+                0.0,                             # 14: level_up_cost (approximate)
+                0.0,                             # 15: dist_to_exit (simplified)
+                0.0,                             # 16: dist_to_crystal (simplified)
+                float(hero.is_gathering_item),   # 17
+                total_skills,                    # 18
+                unlocked_skills,                 # 19
+                next_unlock,                     # 20
+                total_skills - unlocked_skills,  # 21
             ]
 
         # Mob features

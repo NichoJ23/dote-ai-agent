@@ -561,9 +561,8 @@ class RLEnv(gym.Env):
         # Clamp based on option type
         if option == StrategicOption.OPEN_DOOR:
             # Room target must be an adjacent unexplored room (closed door target)
-            # Hero must be usable
-            hero_target = self._pick_usable_hero(state, hero_target)
-            room_target = self._pick_valid_door_target(state, hero_target)
+            # Try to find a hero who is already at a room with a closed door
+            hero_target, room_target = self._pick_hero_and_door(state, hero_target)
 
         elif option == StrategicOption.POSITION_HERO:
             hero_target = self._pick_usable_hero(state, hero_target)
@@ -658,11 +657,42 @@ class RLEnv(gym.Env):
                 return i
         return preferred  # No usable hero — will fail but that's fine
 
+    def _pick_hero_and_door(self, state: GameStatePayload, preferred_hero: int) -> tuple[int, int]:
+        """
+        Find the best hero + door combination for OPEN_DOOR.
+        Prioritizes heroes who are already at a room with a closed door.
+        """
+        explored_indices = {r.index for r in state.rooms}
+
+        # First: find a usable hero who is already at a room with a closed door
+        for i, hero in enumerate(state.heroes):
+            if not hero.is_usable:
+                continue
+            if hero.name in self._hero_move_targets:
+                continue  # Hero is busy
+            # Check if any closed door is adjacent to this hero's room
+            for door in state.closed_doors:
+                if door.room1_index == hero.room_index:
+                    return i, door.room2_index
+                if door.room2_index == hero.room_index:
+                    return i, door.room1_index
+            # Check if hero's room isn't fully opened
+            for room in state.rooms:
+                if room.index == hero.room_index and not room.is_fully_opened:
+                    for adj in room.adjacent_room_indices:
+                        if adj not in explored_indices:
+                            return i, adj
+
+        # No hero is at a door — fall back to any usable hero + any valid door target
+        hero_target = self._pick_usable_hero(state, preferred_hero)
+        room_target = self._pick_valid_door_target(state, hero_target)
+        return hero_target, room_target
+
     def _pick_valid_door_target(self, state: GameStatePayload, hero_idx: int) -> int:
-        """Pick a valid door target room for OPEN_DOOR based on where the hero is."""
+        """Pick a valid door target room for OPEN_DOOR."""
         hero = state.heroes[hero_idx] if hero_idx < len(state.heroes) else None
         if not hero:
-            return 0
+            return -1
 
         hero_room = hero.room_index
 
@@ -673,7 +703,7 @@ class RLEnv(gym.Env):
             if door.room2_index == hero_room:
                 return door.room1_index
 
-        # Option 2: rooms not fully opened — find adjacent unexplored
+        # Option 2: rooms not fully opened — find adjacent unexplored from hero's room
         for room in state.rooms:
             if room.index == hero_room and not room.is_fully_opened:
                 explored_indices = {r.index for r in state.rooms}
@@ -682,8 +712,22 @@ class RLEnv(gym.Env):
                         return adj
 
         # Option 3: any closed door on the floor (hero may need to move first)
+        # Pick the one closest to any explored room
         if state.closed_doors:
-            return state.closed_doors[0].room2_index
+            explored_indices = {r.index for r in state.rooms}
+            for door in state.closed_doors:
+                if door.room1_index in explored_indices:
+                    return door.room2_index
+                if door.room2_index in explored_indices:
+                    return door.room1_index
+
+        # Option 4: any room that isn't fully opened
+        for room in state.rooms:
+            if not room.is_fully_opened:
+                explored_indices = {r.index for r in state.rooms}
+                for adj in room.adjacent_room_indices:
+                    if adj not in explored_indices:
+                        return adj
 
         # Fallback: target_room_index=-1 tells the mod "open any door from hero's room"
         return -1

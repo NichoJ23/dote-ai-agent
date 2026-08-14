@@ -194,6 +194,127 @@ Phase 4:  3.7 ──→ 4.1 → 4.2 → 4.3──┐
                          │                         ├→ 4.18 → 4.19 → 4.20 → 4.21
                          └→ 4.22
                          └→ 4.23
+
+Phase 5:  Phase 3+4 ──→ 5.1.1 → 5.1.2 → 5.1.3 ──→ 5.2.2
+                          │    → 5.1.4                 │
+                          │    → 5.1.6 → 5.1.7        │
+                          └──→ 5.1.5 ────────────────→ 5.3.2
+          Phase 2 ────→ 5.1.8, 5.1.9                   │
+                                                        │
+          5.1.1 ──→ 5.2.1 → 5.2.2 → 5.2.3 ──┐        │
+                           → 5.2.4            │        │
+                           → 5.2.5            ├→ 5.3.1 → 5.3.2 → 5.3.3 → 5.3.4
+                           → 5.2.6            │                              │
+                                              ┘                    5.3.5 ←───┤
+                                                                   5.3.6 ←───┤
+                                                                   5.3.7 ←───┘
+                                                                      │
+                   5.3.4 → 5.4.1 → 5.4.2 → 5.4.3 → 5.4.4 → 5.4.5 → 5.4.6
+                         → 5.5.1, 5.5.2, 5.5.4
+                   5.3.5 → 5.5.3
+                   5.3.1 → 5.5.6
+```
+
+---
+
+## Phase 5: Reinforcement Learning Agent
+
+> **Goal:** Replace the hard-coded heuristic decision tree with a learned policy (PPO) that improves through self-play. The agent discovers optimal strategies via trial, error, and reward shaping — with toggle-able guidelines for training scaffolding.
+
+### Phase 5.1: RL Environment & Infrastructure
+
+| # | Task | Dependencies | Deliverable | Notes |
+|---|------|--------------|-------------|-------|
+| 5.1.1 | Create enhanced RL environment (`rl_env.py`) with richer observation space: power-reachability, room distances (to crystal/exit), hero busy/usable flags, unlocked modules list, equipment compatibility matrix, per-room minor_slots_free. | Phase 3 complete, `dote_env.py` | `src/agent/rl_env.py` | Extends existing DotEEnv concept with Phase 5 obs design |
+| 5.1.2 | Implement hierarchical action space: Level 1 = StrategicOption enum (16 options), Level 2 = per-option parameterization heads. Replace flat Dict action space with `MultiDiscrete` or custom hierarchical space. | 5.1.1 | Action space definition in `rl_env.py` | See design §11.4 |
+| 5.1.3 | Implement action masking module (`action_masking.py`): compute valid action mask from game state for each StrategicOption based on hard constraints (resource availability, slot availability, hero usability, artifact presence, etc.). | 5.1.1 | `src/agent/action_masking.py` | Only masks clearly impossible actions; soft decisions remain unmasked |
+| 5.1.4 | Implement configurable reward function (`reward_shaping.py`): core rewards (floor escaped, game over, hero died, invalid action) + toggle-able guideline shaping terms (power chain, operate, escape timing, combat, equipment match, recruit, industry carry). Load reward weights from YAML config. | 5.1.1 | `src/agent/reward_shaping.py` | See design §11.9 |
+| 5.1.5 | Implement RL config loader (`rl_config.py`): training hyperparameters (learning rate, gamma, clip ratio, epochs, batch size), reward weights, curriculum stage definitions, network architecture params. Single YAML file. | — | `src/agent/rl_config.py` | |
+| 5.1.6 | Update `rl_env.step()` to use direct-destination movement (no hop-by-hop). MOVE_HERO sends target room directly; env waits for post-action state. Track hero busy state via `room_index != target_room` until arrival. | 5.1.1 | Movement logic in `rl_env.py` | Game's A* pathfinding handles multi-room traversal |
+| 5.1.7 | Implement decision-step loop in `rl_env.py`: during Strategy phase, agent can take multiple actions per turn (build, power, equip, etc.) until it selects WAIT or OPEN_DOOR. Each action is one `step()`. | 5.1.1, 5.1.6 | Step loop logic | See design §11.6 |
+| 5.1.8 | Add `DISMISS_HERO` action handler to the C# mod: dismiss a currently recruited hero to free a slot. Parameters: `hero_name`. | Phase 2 action handlers | `src/mod/Actions/DismissHeroHandler.cs` | Needed for "dismiss + recruit better hero" strategy |
+| 5.1.9 | Add `SELL_MODULE` / `DESTROY_MODULE` action handler to C# mod if not already present: sell a built module for partial industry refund. Parameters: `room_index`, `module_name`. | Phase 2 | `src/mod/Actions/SellModuleHandler.cs` | Verify via existing SELL_MODULE handler or create new |
+
+### Phase 5.2: Neural Network & Policy
+
+| # | Task | Dependencies | Deliverable | Notes |
+|---|------|--------------|-------------|-------|
+| 5.2.1 | Implement shared encoder network (`networks.py`): graph encoder (MLP on flattened adjacency + room features), entity encoder (MLP over hero/mob feature vectors with mean pooling), fusion layer → shared 512-d embedding. | 5.1.1 | `src/agent/networks.py` | Start with MLP; upgrade to GNN later if needed |
+| 5.2.2 | Implement option head: 16-way softmax over StrategicOptions with action mask applied (masked logits → -inf before softmax). | 5.2.1, 5.1.3 | Option head in `networks.py` | |
+| 5.2.3 | Implement parameter heads: one small MLP per StrategicOption that outputs the option's parameters (room_index, hero_index, module_id, etc.) as categorical distributions. Only the selected option's head is evaluated. | 5.2.1 | Param heads in `networks.py` | |
+| 5.2.4 | Implement value head: single scalar V(s) prediction from shared embedding. Used for advantage estimation in PPO. | 5.2.1 | Value head in `networks.py` | |
+| 5.2.5 | Implement micro-controller network: smaller separate network for Action phase decisions (hero repositioning, retreat, heal). Input = combat-specific observation subset. Output = per-hero (reposition_room, heal, wait). | 5.2.1 | Combat policy in `src/agent/micro_controller.py` | |
+| 5.2.6 | Implement escape controller network: specialized policy for escape phase decisions (carrier selection, power reallocation, role assignment). | 5.2.1 | `src/agent/escape_controller.py` | |
+
+### Phase 5.3: RL Agent & Training Loop
+
+| # | Task | Dependencies | Deliverable | Notes |
+|---|------|--------------|-------------|-------|
+| 5.3.1 | Implement `RLAgent` class (`rl_agent.py`): extends `BaseAgent`, orchestrates strategic brain + micro-controller + escape controller based on game phase. Handles inference (select_action) using the trained networks. | 5.2.1–5.2.6, 5.1.1 | `src/agent/rl_agent.py` | |
+| 5.3.2 | Implement PPO trainer (`ppo_trainer.py`): rollout collection (on-policy), GAE advantage estimation (λ=0.95), clipped surrogate loss, value loss, entropy bonus. Support for hierarchical action log-probs (option + param). | 5.3.1, 5.1.5 | `src/agent/ppo_trainer.py` | Based on CleanRL's PPO pattern |
+| 5.3.3 | Implement rollout buffer: stores (obs, option, params, reward, done, value, log_prob, action_mask) per step. Handles variable episode lengths. Computes returns + advantages on buffer flush. | 5.3.2 | Rollout buffer in `ppo_trainer.py` | |
+| 5.3.4 | Implement training entry point (`train_rl.py`): launch game via GameLauncher, outer loop over episodes, inner loop over floors, PPO updates every N steps, W&B/TensorBoard logging, periodic checkpoint saves, periodic eval runs. | 5.3.1, 5.3.2, GameLauncher | `src/agent/train_rl.py` | |
+| 5.3.5 | Implement curriculum manager (`curriculum.py`): tracks success rate per stage, auto-advances to next difficulty stage (Floor 1 only → multi-floor → full game → shaping disabled). Controls reward shaping toggles and game parameters. | 5.3.4, 5.1.4 | `src/agent/curriculum.py` | See design §11.10 |
+| 5.3.6 | Implement evaluation script (`eval_rl.py`): loads trained checkpoint, runs agent with greedy action selection (no exploration), records full game metrics (floors reached, resources, heroes alive, time per floor). | 5.3.1 | `src/agent/eval_rl.py` | |
+| 5.3.7 | Add W&B integration to training loop: log per-step rewards, per-floor outcomes, episode returns, loss curves, action distribution entropy, curriculum stage, invalid action rate, floors reached histogram. | 5.3.4 | Logging in `train_rl.py` | |
+
+### Phase 5.4: Training & Iteration
+
+| # | Task | Dependencies | Deliverable | Notes |
+|---|------|--------------|-------------|-------|
+| 5.4.1 | Stage 1 training: Floor 1 survival. Configure curriculum for Easy difficulty, Floor 1 only (game over after escape or death). All guideline shaping enabled. Target: >60% Floor 1 escape rate. | 5.3.4, 5.3.5 | Trained checkpoint + metrics | ~500 episodes |
+| 5.4.2 | Analyze Stage 1 results: review action distributions, identify degenerate behaviors (e.g., always choosing WAIT, ignoring doors). Tune reward weights, learning rate, entropy bonus as needed. | 5.4.1 | Training analysis doc | |
+| 5.4.3 | Stage 2 training: Multi-floor (floors 1–4). Increase episode length to cover floor transitions. Add floor_progress reward. Target: consistently reach Floor 3+. | 5.4.1 | Checkpoint + metrics | ~2000 episodes |
+| 5.4.4 | Stage 3 training: Full game (floors 1–12, Easy difficulty). Disable most guideline shaping. Target: occasional full-game wins. | 5.4.3 | Checkpoint + metrics | ~5000 episodes |
+| 5.4.5 | Stage 4 training: Mastery. All shaping disabled. Train to maximize win rate (full game escape on floor 12). Experiment with higher timeScale (8x) for faster training. | 5.4.4 | Final checkpoint | Ongoing |
+| 5.4.6 | Compare RL agent performance vs heuristic baseline: floors reached, win rate, resource efficiency, hero survival rate, time per floor. Document findings. | 5.4.5, Phase 4 | `docs/rl-vs-heuristic-results.md` | |
+
+### Phase 5.5: Robustness & Polish
+
+| # | Task | Dependencies | Deliverable | Notes |
+|---|------|--------------|-------------|-------|
+| 5.5.1 | Implement graceful training interruption: save checkpoint on Ctrl+C or crash. Resume training from last checkpoint without losing progress. | 5.3.4 | Interrupt handling in `train_rl.py` | |
+| 5.5.2 | Implement game-crash recovery in training loop: detect TCP disconnect, restart game, resume episode from menu (lost floor progress counts as game_over for that episode). | 5.3.4 | Recovery logic | |
+| 5.5.3 | Add hero composition randomization to curriculum Stage 3+: randomly select 2 starting heroes (from unlocked pool) to prevent overfitting to Max + Gork. | 5.3.5, 5.4.3 | Hero randomization in curriculum | |
+| 5.5.4 | Implement self-play replay recording: save full episode traces (observations, actions, rewards) for offline analysis and debugging. | 5.3.4 | Episode recorder | |
+| 5.5.5 | Optional: implement GNN upgrade for graph encoder if MLP performance plateaus on spatial reasoning tasks (e.g., power chain decisions, escape path planning). | 5.2.1, 5.4.2 | GNN encoder option in `networks.py` | Only if needed |
+| 5.5.6 | Write integration test: mock IPC with recorded state sequences, verify RL agent produces valid actions (passes action masking), doesn't crash over a full episode. | 5.3.1 | `tests/test_rl_agent.py` | |
+
+---
+
+## Dependency Graph (Phase 5)
+
+```
+Phase 5.1 (Env & Infra):
+  Phase 3+4 ──→ 5.1.1 → 5.1.2 → 5.1.3
+                  │    → 5.1.4
+                  │    → 5.1.6 → 5.1.7
+                  └──→ 5.1.5
+  Phase 2 ────→ 5.1.8
+              → 5.1.9
+
+Phase 5.2 (Networks):
+  5.1.1 ──→ 5.2.1 → 5.2.2 (+ 5.1.3)
+                   → 5.2.3
+                   → 5.2.4
+                   → 5.2.5
+                   → 5.2.6
+
+Phase 5.3 (Training):
+  5.2.1–5.2.6 ──→ 5.3.1 → 5.3.2 → 5.3.3 → 5.3.4 → 5.3.5
+  5.1.5 ─────────────────→ 5.3.2            → 5.3.6
+                                             → 5.3.7
+
+Phase 5.4 (Training Stages):
+  5.3.4 ──→ 5.4.1 → 5.4.2 → 5.4.3 → 5.4.4 → 5.4.5 → 5.4.6
+
+Phase 5.5 (Polish):
+  5.3.4 ──→ 5.5.1
+          → 5.5.2
+  5.3.5 ──→ 5.5.3
+  5.3.4 ──→ 5.5.4
+  5.2.1 ──→ 5.5.5 (conditional)
+  5.3.1 ──→ 5.5.6
 ```
 
 ---
@@ -206,4 +327,5 @@ Phase 4:  3.7 ──→ 4.1 → 4.2 → 4.3──┐
 | Phase 2 | 20 | 2–3 weeks | TCP threading on Unity main thread; .NET 3.5 JSON serialization; many action handlers to validate |
 | Phase 3 | 15 | 1–2 weeks | Observation space dimensionality; variable room/door count; door-edge vs node modeling |
 | Phase 4 | 30 | 3–5 weeks | Escape orchestration complexity; heuristic tuning; operator vs explorer hero assignment conflicts; artifact defense decision-making |
-| **Total** | **77** | **7–12 weeks** | — |
+| Phase 5 | 34 | 6–10 weeks | Reward tuning (sparse rewards in long episodes); single-env training speed; hierarchical action space exploration; curriculum pacing |
+| **Total** | **111** | **13–22 weeks** | — |

@@ -1108,3 +1108,539 @@ The `Plugin.Update()` loop now runs `AcceptClients()` and `actionRouter.ProcessA
 | `src/agent/dote_env.py` | Gymnasium environment wrapper (DotEEnv) |
 | `src/agent/guidelines_config.py` | Configurable heuristic guidelines (YAML/JSON) |
 | `src/agent/game_launcher.py` | Game lifecycle management (launch, start, continue) |
+
+---
+
+## 11. Phase 5: Reinforcement Learning Agent
+
+### 11.1 Overview & Philosophy
+
+The RL agent replaces the hard-coded heuristic decision tree with a learned policy that improves through self-play. The core design principles:
+
+1. **Almost nothing hard-coded.** The agent discovers optimal strategies through trial and error rather than following scripted rules.
+2. **Toggle-able guidelines as reward shaping.** The existing `GuidelinesConfig` concepts (GL-1 through GL-8) become optional reward shaping signals that can be enabled during early training to accelerate convergence, then disabled to let the agent find novel strategies.
+3. **Hierarchical action decomposition.** A single monolithic policy over the entire action space would be intractable. Instead, the agent uses a hierarchical structure: a high-level "strategic brain" that decides WHAT to do, and low-level "tactical modules" that decide HOW to do it.
+4. **Direct room movement.** Unlike the heuristic agent's hop-by-hop pathfinding, the RL agent issues MOVE_HERO commands directly to the final destination room. The game's internal A* pathfinding (`Mover.MoveToPosition` via `Seeker`/`ABPath`) handles multi-room traversal automatically.
+5. **Learn from failures gracefully.** Invalid actions (hero not usable, insufficient resources, wrong room) return failed results from the mod. The agent receives a small negative reward for invalid actions and learns to avoid them — no hard masking of the entire action space needed, only masking of clearly impossible actions (e.g., building modules that aren't unlocked).
+
+### 11.2 Architecture: Hierarchical RL with Options Framework
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                     RL AGENT (Python)                             │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │              STRATEGIC BRAIN (High-Level Policy)            │  │
+│  │                                                            │  │
+│  │  Observation → Option Selection (what to do next)          │  │
+│  │  Options: Power, Build, Research, Recruit, Equip,          │  │
+│  │           LevelUp, Buy, OpenDoor, PositionHeroes,          │  │
+│  │           InitiateEscape, Heal, DestroyModule, Wait        │  │
+│  └───────────────────────────┬────────────────────────────────┘  │
+│                              │ Selected Option                    │
+│  ┌───────────────────────────▼────────────────────────────────┐  │
+│  │            TACTICAL MODULES (Low-Level Policies)            │  │
+│  │                                                            │  │
+│  │  Each option has a parameterization sub-policy:            │  │
+│  │  - PowerOption: which room to power/depower                │  │
+│  │  - BuildOption: which module, which room                   │  │
+│  │  - PositionOption: which hero, which room                  │  │
+│  │  - DoorOption: which hero, which door                      │  │
+│  │  - etc.                                                    │  │
+│  └───────────────────────────┬────────────────────────────────┘  │
+│                              │ Concrete ActionCommand             │
+│  ┌───────────────────────────▼────────────────────────────────┐  │
+│  │              ACTION EXECUTOR                                │  │
+│  │                                                            │  │
+│  │  - Validates basic preconditions (action masking)          │  │
+│  │  - Sends command to game via IPC                           │  │
+│  │  - Waits for result + fresh state                          │  │
+│  │  - Reports success/failure back to learning system         │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │              MICRO-CONTROLLER (Action Phase)                │  │
+│  │                                                            │  │
+│  │  Separate policy activated during wave_active phase:       │  │
+│  │  - Hero repositioning in response to spawns               │  │
+│  │  - Retreat decisions for low-HP heroes                     │  │
+│  │  - Heal commands for critical heroes                       │  │
+│  │  - Spawn-blocking positioning decisions                    │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │              ESCAPE CONTROLLER                              │  │
+│  │                                                            │  │
+│  │  Activated when escape is initiated:                       │  │
+│  │  - Power reallocation for escape path                      │  │
+│  │  - Crystal carrier selection + routing                     │  │
+│  │  - Escort/blocker/straggler assignment                     │  │
+│  │  - Exit timing decisions                                   │  │
+│  └────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 11.3 State Representation (Enhanced Observation Space)
+
+The existing `DotEEnv` observation space is a good starting point but needs enrichment for RL. The RL agent needs a richer, more informative observation to learn from:
+
+```python
+observation_space = Dict({
+    # --- Spatial / Graph ---
+    "adjacency": Box(0, 1, (MAX_ROOMS, MAX_ROOMS), int8),       # Room connectivity
+    "door_state": Box(0, 1, (MAX_ROOMS, MAX_ROOMS), int8),      # Open/closed doors
+    "power_state": Box(0, 1, (MAX_ROOMS,), int8),               # Per-room power
+    "power_reachable": Box(0, 1, (MAX_ROOMS,), int8),           # Reachable from crystal via powered chain
+
+    # --- Room Features (per-room) ---
+    "room_features": Box(-1, 200, (MAX_ROOMS, 20), float32),
+    # Features per room:
+    #   is_powered, is_auto_powered, is_start_room, is_exit_room,
+    #   depth, suffers_emp, emp_turns_remaining, has_artifact, has_stele,
+    #   minor_slot_count, minor_slots_free, has_major_module,
+    #   num_minor_modules, hero_count, mob_count, npc_count,
+    #   dust_loot_amount, is_on_escape_path, distance_to_crystal,
+    #   distance_to_exit
+
+    # --- Hero Features ---
+    "hero_features": Box(-1, 1000, (MAX_HEROES, 18), float32),
+    # Per hero:
+    #   room_index, hp_ratio, level, has_crystal, is_operating,
+    #   is_busy, is_usable, num_passive_skills, has_operate_passive,
+    #   has_repair_passive, num_active_skills, num_equipment,
+    #   faction_id, weapon_class_id, level_up_cost,
+    #   distance_to_exit, distance_to_crystal, is_gathering_item
+
+    # --- Mob Features (variable count, padded) ---
+    "mob_features": Box(-1, 1000, (MAX_MOBS, 6), float32),
+    # Per mob: room_index, hp_ratio, target_type_id, distance_to_crystal,
+    #          is_in_powered_room, mob_type_id
+
+    # --- Resources ---
+    "resources": Box(-100, 10000, (10,), float32),
+    # industry, food, science, dust, dust_max,
+    # ind_per_turn, food_per_turn, sci_per_turn,
+    # dust_used (rooms_powered * 10), dust_available (dust - dust_used)
+
+    # --- Available Actions Context ---
+    "unlocked_modules": Box(0, 1, (MAX_MODULES,), int8),        # Which modules can be built
+    "researchable": Box(0, 1, (MAX_RESEARCH,), int8),           # Available research options
+    "recruitable_heroes": Box(-1, 100, (MAX_RECRUITS, 8), float32),  # Stats of available recruits
+    "merchant_items": Box(-1, 1000, (MAX_MERCHANT_ITEMS, 6), float32),  # Items for sale
+    "inventory_items": Box(-1, 100, (MAX_INVENTORY, 6), float32),  # Backpack + shared items
+    "hero_equipment_compat": Box(0, 1, (MAX_HEROES, MAX_INVENTORY), int8),  # Can hero equip item?
+
+    # --- Game Meta ---
+    "game_meta": Box(-1, 10000, (12,), float32),
+    # turn, floor, phase_id, num_rooms, num_heroes, num_mobs,
+    # num_closed_doors, crystal_safe, exit_room_index,
+    # time_scale, is_last_floor (floor==12), total_doors_on_floor
+})
+```
+
+### 11.4 Action Space Design (Hierarchical)
+
+Rather than one flat Discrete space over all possible (command × parameter) combinations, the agent uses a two-level action:
+
+**Level 1: Option Selection (Strategic Brain)**
+
+```python
+# High-level options the agent can choose from each decision step
+class StrategicOption(Enum):
+    POWER_ROOM = 0          # Power an unpowered room
+    DEPOWER_ROOM = 1        # Depower a powered room (to free dust)
+    BUILD_MODULE = 2        # Build a module in a room
+    DESTROY_MODULE = 3      # Sell/destroy a built module
+    RESEARCH = 4            # Research a blueprint at an artifact
+    RECRUIT_HERO = 5        # Recruit a discovered hero
+    DISMISS_HERO = 6        # Dismiss a current hero (to make room)
+    LEVEL_UP_HERO = 7       # Level up a hero
+    BUY_ITEM = 8            # Buy from a merchant
+    EQUIP_ITEM = 9          # Equip an item to a hero
+    UNEQUIP_ITEM = 10       # Unequip an item from a hero
+    POSITION_HERO = 11      # Move a hero to a specific room
+    OPEN_DOOR = 12          # Open a closed door
+    HEAL_HERO = 13          # Heal a hero with food
+    INITIATE_ESCAPE = 14    # Begin the escape sequence
+    WAIT = 15               # Do nothing this decision step (end turn)
+```
+
+**Level 2: Option Parameterization (Tactical Module)**
+
+Each option has a dedicated parameter head that produces the specific arguments:
+
+| Option | Parameters Needed |
+|--------|-------------------|
+| POWER_ROOM | room_index |
+| DEPOWER_ROOM | room_index |
+| BUILD_MODULE | room_index, module_id |
+| DESTROY_MODULE | room_index, module_id |
+| RESEARCH | research_id |
+| RECRUIT_HERO | recruit_id, recruiter_hero_index |
+| DISMISS_HERO | hero_index |
+| LEVEL_UP_HERO | hero_index |
+| BUY_ITEM | merchant_item_id, hero_index |
+| EQUIP_ITEM | item_id, hero_index |
+| UNEQUIP_ITEM | hero_index, slot_type |
+| POSITION_HERO | hero_index, room_index |
+| OPEN_DOOR | hero_index, door_id (from_room, to_room) |
+| HEAL_HERO | hero_index, food_amount |
+| INITIATE_ESCAPE | (no params — triggers escape controller) |
+| WAIT | (no params) |
+
+### 11.5 Action Masking
+
+To improve training efficiency, clearly impossible actions are masked out BEFORE the policy network sees them. This is not hard-coding strategy — it's preventing the agent from wasting training steps on physically impossible commands:
+
+**Always masked (hard constraints):**
+- BUILD_MODULE when: no unlocked modules, no available slots in any room, zero industry
+- RESEARCH when: no artifact on floor, no researchable blueprints, already researching
+- RECRUIT_HERO when: no recruitable heroes on floor, zero food
+- BUY_ITEM when: no merchants on floor, zero dust
+- EQUIP_ITEM when: no items in inventory
+- OPEN_DOOR when: no closed doors remain
+- POWER_ROOM when: no unpowered rooms or dust_available <= 0
+- DEPOWER_ROOM when: no powered (non-auto) rooms
+- DISMISS_HERO when: only 1 hero remains
+- LEVEL_UP_HERO when: not enough food for any hero's level_up_cost
+- HEAL_HERO when: all heroes at full HP or zero food
+- INITIATE_ESCAPE when: exit room not discovered, or already escaping
+- POSITION_HERO when: all heroes busy/not usable
+
+**Never masked (soft constraints the agent must learn):**
+- "Should I power this room vs that room?" — agent learns room value
+- "Is it worth depowering room X to power room Y?" — agent learns chain importance
+- "Should I buy this item or save dust?" — agent learns resource economy
+- "Should I open more doors or escape now?" — agent learns risk assessment
+
+### 11.6 Decision Timing & Game Loop Integration
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  STRATEGY PHASE                       │
+│                                                      │
+│  while game_phase == Strategy:                       │
+│    1. Receive fresh state from mod                   │
+│    2. Build observation                              │
+│    3. Strategic brain selects option                  │
+│    4. If option == WAIT: break (end turn — let the   │
+│       heuristic or environment open a door to        │
+│       advance to Action phase)                       │
+│    5. Tactical module parameterizes the option       │
+│    6. Action executor sends command + waits result   │
+│    7. Receive post-action state                      │
+│    8. Compute step reward                            │
+│    9. Store transition in replay buffer              │
+│   10. Repeat (agent can take multiple actions per    │
+│       strategy phase)                                │
+│                                                      │
+│  Note: Door opening advances to Action phase.        │
+│  The agent must open a door itself (option 12)       │
+│  when it decides to — this is how it "ends its       │
+│  strategy turn."                                     │
+└─────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────┐
+│                  ACTION PHASE                         │
+│                                                      │
+│  while game_phase == Action:                         │
+│    1. Receive state (mobs spawning, fighting)        │
+│    2. Micro-controller policy decides:               │
+│       - Reposition heroes (react to spawn rooms)     │
+│       - Retreat low-HP heroes                        │
+│       - Heal critically wounded heroes               │
+│       - Block spawns in unpowered rooms              │
+│    3. If no action needed: WAIT (game resolves       │
+│       combat automatically via hero auto-targeting)  │
+│    4. Store transitions for micro-controller         │
+│                                                      │
+│  Action phase ends when all mobs are dead →          │
+│  returns to Strategy phase.                          │
+└─────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────┐
+│                  ESCAPE PHASE                         │
+│                                                      │
+│  Triggered by INITIATE_ESCAPE option:                │
+│    1. Escape controller policy takes over:           │
+│       - Select crystal carrier                       │
+│       - Reallocate power (escape path priority)      │
+│       - Assign hero roles (carrier/escort/blocker)   │
+│       - Route all heroes                             │
+│    2. During escape waves (Action sub-phase):        │
+│       - Micro-controller handles combat              │
+│    3. Crystal arrives at exit → PLUG_CRYSTAL_EXIT    │
+│    4. Floor complete → NEXT_FLOOR or game end        │
+└─────────────────────────────────────────────────────┘
+```
+
+### 11.7 Network Architecture
+
+The policy network uses a **multi-headed architecture** with shared feature extraction:
+
+```
+Input Observation
+       │
+       ▼
+┌─────────────────────────────────────────┐
+│         SHARED ENCODER                   │
+│                                         │
+│  ┌──────────────┐  ┌────────────────┐   │
+│  │ Graph Encoder │  │ Entity Encoder │   │
+│  │ (GNN or MLP  │  │ (Heroes, Mobs, │   │
+│  │  on flattened │  │  Items, etc.)  │   │
+│  │  adjacency +  │  │  (MLP / Set    │   │
+│  │  room feats)  │  │   Transformer) │   │
+│  └──────┬───────┘  └───────┬────────┘   │
+│         │                   │            │
+│         └─────────┬─────────┘            │
+│                   ▼                      │
+│         ┌─────────────────┐              │
+│         │  Fusion Layer    │              │
+│         │  (concat + MLP)  │              │
+│         └────────┬────────┘              │
+└──────────────────┼───────────────────────┘
+                   │ Shared Embedding (512-d)
+                   │
+       ┌───────────┼───────────────────┐
+       │           │                   │
+       ▼           ▼                   ▼
+┌─────────────┐ ┌──────────┐  ┌──────────────┐
+│ Option Head │ │Value Head│  │ Param Heads  │
+│ (16-way     │ │ (scalar  │  │ (per-option  │
+│  softmax    │ │  V(s))   │  │  sub-policy) │
+│  + mask)    │ │          │  │              │
+└─────────────┘ └──────────┘  └──────────────┘
+```
+
+**Design decisions:**
+- **GNN vs flattened MLP for graph:** Start with flattened adjacency + room features through MLP (simpler, faster to iterate). Graduate to GNN (Graph Attention Network) if the agent struggles with spatial reasoning.
+- **Set Transformer for entities:** Heroes/mobs/items are variable-count, order-invariant entities. A lightweight attention mechanism handles this better than fixed padding.
+- **Separate param heads:** Each option has its own small MLP that produces the parameters for that option. Only the selected option's head is evaluated (saves compute).
+
+### 11.8 Training Algorithm: PPO with Auxiliary Objectives
+
+**Primary algorithm: PPO (Proximal Policy Optimization)**
+
+Rationale:
+- Works well with discrete hierarchical action spaces
+- Stable training (important when environment is slow — one game instance)
+- Compatible with action masking
+- Well-supported in CleanRL / SB3 / RLlib
+
+**Auxiliary training signals (to accelerate learning):**
+- **Action validity prediction:** Auxiliary head predicts whether an action will succeed or fail. Provides gradient signal even when the main reward is sparse.
+- **State value prediction per floor:** Predicts expected final reward for the floor. Helps with credit assignment across the many steps per floor.
+- **Opponent modeling (optional):** Predicts where mobs will spawn next based on room power/door state patterns.
+
+### 11.9 Reward Function (Enhanced)
+
+The reward function is the primary mechanism for encoding "soft" domain knowledge. Guidelines become reward shaping terms that can be toggled:
+
+```python
+# --- Core Rewards (always active) ---
+R_floor_escaped = +200.0            # Successfully escape a floor
+R_game_over = -200.0                # Crystal destroyed
+R_hero_died = -50.0                 # A hero died
+R_room_explored = +5.0              # Opened a new door / discovered new room
+R_invalid_action = -1.0             # Attempted an impossible action
+R_successful_action = +0.1          # Any valid action executed
+R_floor_progress = +100.0 * (floor / 12)  # Reaching higher floors is exponentially more valuable
+R_wait_penalty = -0.05              # Small penalty for choosing WAIT (encourages action)
+
+# --- Resource Economy (always active) ---
+R_industry_built = +3.0             # Built an industry module
+R_module_built = +1.5               # Built any other module
+R_research_completed = +4.0         # Completed a research
+R_item_equipped = +1.0              # Equipped an item to a compatible hero
+R_dust_collected = +0.5 * amount    # Collected dust from floor
+
+# --- Guideline-Shaped Rewards (toggle-able) ---
+# GL-POWER: Power chain awareness
+R_power_chain_broken = -3.0         # Depowered a room that disconnected others from crystal
+R_power_chain_optimal = +1.0        # Powered a room that extends the longest powered chain
+
+# GL-OPERATE: Operate bonus awareness
+R_operator_placed = +2.0            # Hero with Operate passive placed on major module
+R_operator_interrupted = -2.0       # Moved an operating hero (losing bonus)
+
+# GL-ESCAPE: Escape timing
+R_escape_all_doors_open = +5.0      # Escaped after opening all doors (max resources gathered)
+R_escape_early_but_safe = +2.0      # Escaped before all doors (survived with judgment)
+R_overstayed = -10.0                # Died because opened too many doors on dangerous floor
+
+# GL-COMBAT: Combat positioning
+R_spawn_blocked = +2.0              # Hero in unpowered room blocked spawns
+R_hero_took_heavy_damage = -1.0     # Hero dropped below 30% HP
+R_hero_healed_wisely = +0.5         # Healed a hero who was in genuine danger
+
+# GL-EQUIPMENT: Equipment matching
+R_weapon_class_match = +2.0         # Equipped a weapon matching hero's weapon class
+R_weapon_class_mismatch = -1.0      # Equipped incompatible weapon (will fail or be suboptimal)
+
+# GL-RECRUIT: Recruitment decisions
+R_recruited_useful_hero = +3.0      # Recruited hero with operate/repair passive or good faction synergy
+R_dismissed_for_upgrade = +1.0      # Dismissed a weaker hero to recruit a stronger one
+
+# GL-INDUSTRY: Cross-floor resource planning
+R_floor_exit_industry_high = +5.0 * (industry / 100)  # Reward leaving floor with industry to carry
+```
+
+### 11.10 Training Infrastructure
+
+**Self-play loop:**
+```
+┌───────────────────────────────────────────────────────┐
+│                  TRAINING LOOP                          │
+│                                                        │
+│  for episode in range(num_episodes):                   │
+│    1. game_launcher.start_new_game(...)                 │
+│    2. for floor in range(1, 13):                       │
+│       a. Collect rollout (steps until floor ends)      │
+│       b. Store in replay buffer                        │
+│       c. If floor_escaped: NEXT_FLOOR                  │
+│       d. If game_over: break                           │
+│    3. Compute advantages + returns                     │
+│    4. PPO update (multiple epochs over buffer)         │
+│    5. Log metrics (TensorBoard / W&B)                  │
+│    6. Every N episodes: save checkpoint                │
+│    7. Every M episodes: evaluate without exploration   │
+│    8. game_launcher.return_to_menu() → restart         │
+└───────────────────────────────────────────────────────┘
+```
+
+**Time scale for training:** The mod already supports `Time.timeScale`. For training, increase to 4x–8x to accelerate gameplay. The IPC polling intervals scale with timeScale already.
+
+**Curriculum learning (phased difficulty):**
+
+| Stage | Duration | Focus | Guideline Rewards |
+|-------|----------|-------|-------------------|
+| Stage 1: Survive Floor 1 | ~500 episodes | Learn basic actions, avoid invalid commands, open doors, build modules | All enabled (max shaping) |
+| Stage 2: Multi-floor | ~2000 episodes | Learn escape timing, floor transitions, resource carry-over | All enabled |
+| Stage 3: Full game | ~5000 episodes | Reach floor 12, complex combat, recruitment decisions | Gradually disable shaping |
+| Stage 4: Mastery | Ongoing | Optimize win rate, discover novel strategies | All shaping disabled |
+
+### 11.11 Guidelines as Training Scaffolding
+
+Each former heuristic "guideline" becomes a reward-shaping signal that the agent can learn to follow or violate:
+
+| Guideline | Heuristic Behavior | RL Training Signal | Can Be Disabled? |
+|-----------|-------------------|-------------------|-----------------|
+| GL-1 (Retreat) | Hard retreat at 30% HP | Negative reward for hero death; no forced retreat | Yes — agent learns its own risk tolerance |
+| GL-2 (Starting heroes) | Always pick Max + Gork | Train with fixed heroes initially; randomize later | Yes — agent tries different compositions |
+| GL-3 (Protect operators) | Never move operating heroes | Negative reward for interrupting operate | Yes — agent may learn when interruption is worth it |
+| GL-4 (Max Operate unlock) | Prioritize Max leveling | Bonus for unlocking Operate on any hero | Yes — agent decides leveling priority |
+| GL-5 (Fastest carrier) | Always assign fastest to crystal | No constraint — agent picks who carries | Yes — fully learned |
+| GL-6 (Repower escape) | Scripted repower of exit path | Bonus for keeping exit path powered during escape | Yes — agent learns escape power management |
+| GL-7 (Artifact safety) | Don't research if artifact endangered | Negative reward if artifact destroyed while researching | Yes — agent learns artifact defense |
+| GL-8 (Pre-escape inventory) | Move items to backpack before escape | Reward for carrying items to next floor | Yes — agent learns item persistence |
+
+### 11.12 Micro-Controller (Action Phase Policy)
+
+During the Action phase, a separate (smaller) policy network controls hero positioning in combat:
+
+**Observation (combat-specific):**
+- Mob spawn locations + counts per room
+- Hero positions + HP ratios
+- Powered/unpowered room map (spawn-blocking potential)
+- Modules in danger (mobs in room with modules)
+- Crystal room threat level
+
+**Actions (combat-only):**
+- REPOSITION_HERO(hero_idx, room_idx) — move hero to a different room
+- HEAL_HERO(hero_idx) — emergency heal
+- WAIT — let auto-combat resolve (heroes auto-target nearest enemy)
+
+**Key learned behaviors:**
+- Heroes in unpowered rooms block mob spawns until spawning ceases — then should move to fight
+- Moving an operating hero loses the operate bonus for a turn (cost/benefit)
+- Retreating a near-death hero is better than losing them entirely
+- Crystal room must be defended if crystal-targeting mobs appear
+
+### 11.13 Escape Controller
+
+The escape phase has unique dynamics that warrant a specialized policy:
+
+**Trigger:** Strategic brain selects INITIATE_ESCAPE option.
+
+**Decisions (learned, not scripted):**
+1. **Crystal carrier selection** — any hero can carry, agent learns who is safest/fastest
+2. **Power reallocation** — which rooms to power on the exit path, which to depower
+3. **Hero roles:**
+   - Carrier: picks up crystal, moves to exit room
+   - Escort: moves ahead of carrier, fights mobs on path
+   - Blocker: stands in depowered room to block spawns
+   - Exit-waiter: already at exit room
+4. **Abandon decision:** If carrier is going to die, should the crystal be dropped? If stragglers can't reach exit, should they be left behind?
+
+**Exit condition:** All heroes (or just carrier + essential escorts) in exit room → PLUG_CRYSTAL_EXIT.
+
+### 11.14 Movement Design (No Hop-by-Hop)
+
+The RL agent issues MOVE_HERO commands with the **final destination room** directly:
+
+```python
+# Heuristic agent (old): hop-by-hop
+path = shortest_path(hero.room, target)
+action = MOVE_HERO(hero, path[1])  # Only next room in chain
+
+# RL agent (new): direct destination
+action = MOVE_HERO(hero, target_room)  # Game auto-paths via A*
+```
+
+**Why this works:** The game's `Hero.MoveToRoom()` → `RequestMoveToPosition(room.CenterPosition)` → `Mover.MoveToPosition()` uses `Pathfinding.Seeker.StartPath()` (A* pathfinding library) to compute and follow a path through multiple rooms automatically. The hero walks through intermediate rooms without additional commands.
+
+**Implication for state tracking:** After issuing MOVE_HERO to a distant room, the hero's `room_index` in state updates as they pass through each intermediate room. The agent should consider the hero "busy" until they arrive at the target room. The `is_usable` field on heroes already tracks this — a moving hero remains usable (can be re-directed) but the agent should learn not to constantly re-route heroes.
+
+### 11.15 Handling Known Pitfalls (Lessons from Heuristic Agent)
+
+Based on the issues documented in `docs/heuristic-agent-notes.md`:
+
+| Pitfall | RL Agent Approach |
+|---------|-------------------|
+| #1 Movement not instant | Agent observes hero.room_index updating over time. Busy heroes have lower action priority. Step reward doesn't fire until hero arrives. |
+| #2 "Not usable" during animations | Invalid action penalty (-1.0). Agent learns timing. Action masking on `hero.is_usable == false`. |
+| #3 Room index shuffling | Already solved by OpeningIndex+1 stable IDs. No change needed. |
+| #4 State staleness | Environment always waits for post-action state push before computing next observation. |
+| #5 Crystal state confusion | `is_game_over` uses `is_level_over` as primary signal. Observation includes crystal_safe flag. |
+| #6 Item pickup timing | No explicit wait. Agent observes items disappearing from state over time. Small delayed reward when dust/items collected. |
+| #7 Research requires artifact | Action mask: RESEARCH masked when no artifact present. |
+| #8 Action timeouts (30s) | RL inference is fast (<100ms). Not a concern. |
+| #9 Time scale | Training uses higher timeScale (4x–8x). State push rates scale automatically. |
+| #10 Floor transitions | Handled by training loop (not the policy). NEXT_FLOOR is a meta-action between episodes. |
+| #11 ResourceHook null after transitions | Already fixed in mod. Training loop handles floor boundaries. |
+| #12 Optimistic state updates | Never assume success. Only update internal state after confirmed result. |
+| #13 WAIT blocking other actions | Hierarchical design: WAIT is one option among many. Other options always available. |
+| #15 Door opens advance turns | Part of the environment dynamics. Agent learns that OPEN_DOOR transitions to Action phase. |
+| #16 Game over detection | Environment uses `is_level_over` flag. Episode terminates correctly. |
+
+### 11.16 Technology Stack
+
+| Component | Choice | Rationale |
+|-----------|--------|-----------|
+| RL Algorithm | PPO (CleanRL implementation) | Simple, stable, well-understood; CleanRL is single-file, easy to customize for hierarchical actions |
+| Neural Network | PyTorch | Industry standard, good debugging, compatible with everything |
+| Action Masking | Custom mask computation in env | `InvalidActionMasking` pattern from CleanRL reference impl |
+| Logging | Weights & Biases (W&B) + TensorBoard | Real-time training curves, hyperparameter tracking, episode recording |
+| Checkpointing | PyTorch save/load + periodic eval | Save best model by floor-reached metric |
+| Curriculum | Manual stage progression based on success rate | Move to next stage when >60% success rate in current |
+| Replay Buffer | On-policy (PPO rollout buffer) | PPO is on-policy; no separate replay buffer needed |
+| Vectorized Envs | Single environment (game instance) | Game is heavyweight; no parallel envs possible on one machine |
+
+### 11.17 File Map (Phase 5)
+
+| File | Purpose |
+|------|---------|
+| `src/agent/rl_agent.py` | Main RLAgent class (extends BaseAgent), orchestrates strategic/micro/escape |
+| `src/agent/rl_env.py` | Enhanced Gymnasium env with richer observations, action masking, hierarchical action space |
+| `src/agent/networks.py` | PyTorch network definitions (shared encoder, option head, param heads, value head) |
+| `src/agent/ppo_trainer.py` | PPO training loop with rollout collection, advantage estimation, policy updates |
+| `src/agent/action_masking.py` | Action mask computation from game state (hard constraints only) |
+| `src/agent/reward_shaping.py` | Configurable reward function with toggle-able guideline shaping terms |
+| `src/agent/curriculum.py` | Curriculum manager: tracks success rates, advances training stages |
+| `src/agent/micro_controller.py` | Action-phase combat policy (smaller network) |
+| `src/agent/escape_controller.py` | Escape-phase policy |
+| `src/agent/train_rl.py` | Training entry point: game launch, training loop, logging, checkpoints |
+| `src/agent/eval_rl.py` | Evaluation script: load checkpoint, play without exploration, record metrics |
+| `src/agent/rl_config.py` | Training hyperparameters + reward weights + curriculum config (YAML) |
+

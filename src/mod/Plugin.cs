@@ -90,6 +90,8 @@ namespace DotEAgent
             actionRouter.RegisterHandler(new LevelUpHeroHandler(stateManager.GetDungeonHook()));
             actionRouter.RegisterHandler(new HealHeroHandler(stateManager.GetDungeonHook()));
             actionRouter.RegisterHandler(new ResearchHandler(stateManager.GetDungeonHook()));
+            actionRouter.RegisterHandler(new DismissHeroHandler(stateManager.GetDungeonHook()));
+            actionRouter.RegisterHandler(new SellModuleHandler(stateManager.GetDungeonHook()));
 
             // Floor exit handler
             actionRouter.RegisterHandler(new ExitFloorHandler(stateManager.GetDungeonHook()));

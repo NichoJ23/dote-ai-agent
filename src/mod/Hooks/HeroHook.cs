@@ -100,6 +100,7 @@ namespace DotEAgent.Hooks
 
             data.IsRecruitable = hero.IsRecruitable;
             data.IsRecruited = hero.IsRecruited;
+            data.IsUsable = hero.IsUsable;
 
             // Combat stats from simulation properties
             try

@@ -112,6 +112,7 @@ class HeroState(BaseModel):
     is_gathering_item: bool = False  # Hero is mid-pickup animation; moving cancels it
     is_recruitable: bool = False
     is_recruited: bool = True
+    is_usable: bool = True  # False when hero is in animation, dead, respawning, etc.
 
     # Combat stats (computed from equipment, level, passives)
     attack: float = 0.0           # AttackPower

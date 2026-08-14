@@ -16,6 +16,7 @@ namespace DotEAgent.Models
         public bool IsGatheringItem;      // Currently in item pickup animation (do NOT move hero)
         public bool IsRecruitable;
         public bool IsRecruited;
+        public bool IsUsable;             // False when hero is in animation, dead, respawning, etc.
 
         // Combat stats (computed from SimulationProperties via equipment, level, passives)
         public float Attack;              // AttackPower

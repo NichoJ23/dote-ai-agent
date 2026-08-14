@@ -201,11 +201,14 @@ class HeuristicAgent(BaseAgent):
             action = self._handle_build(state)
 
         # Guard: never send MOVE_HERO to a room the hero is already in
-        # Also prevent issuing time-requiring commands to heroes that are busy
+        # Also prevent issuing commands to heroes that aren't usable or are busy
         if action and action.get("command") == "MOVE_HERO":
             hero_name = action["parameters"].get("hero_name")
             target = action["parameters"].get("target_room_index")
             hero = next((h for h in state.heroes if h.name == hero_name), None)
+            if hero and not hero.is_usable:
+                logger.debug(f"Suppressed move: {hero_name} is not usable")
+                return None
             if hero and hero.room_index == target:
                 logger.debug(f"Suppressed no-op move: {hero_name} already in room {target}")
                 return None
@@ -217,6 +220,10 @@ class HeuristicAgent(BaseAgent):
         if action and action.get("command") == "OPEN_DOOR":
             hero_name = action["parameters"].get("hero_name")
             target = action["parameters"].get("target_room_index")
+            hero = next((h for h in state.heroes if h.name == hero_name), None)
+            if hero and not hero.is_usable:
+                logger.debug(f"Suppressed open_door: {hero_name} is not usable")
+                return None
             # Don't send open door to a hero that's already busy
             if state.game_phase.is_planning and hero_name in self._hero_busy:
                 logger.debug(f"Suppressed open_door for busy hero: {hero_name} (busy: {self._hero_busy[hero_name]})")
@@ -746,6 +753,7 @@ class HeuristicAgent(BaseAgent):
                 max_hero = next(
                     (h for h in state.heroes
                      if "Max" in h.name and not h.is_operating
+                     and h.is_usable
                      and self._hero_room(h) == crystal_room),
                     None,
                 )
@@ -754,7 +762,8 @@ class HeuristicAgent(BaseAgent):
                     # Fall back to any hero in crystal room
                     hero = next(
                         (h for h in state.heroes
-                         if self._hero_room(h) == crystal_room and not h.is_operating),
+                         if self._hero_room(h) == crystal_room and not h.is_operating
+                         and h.is_usable),
                         None,
                     )
                 if hero:
@@ -1155,7 +1164,7 @@ class HeuristicAgent(BaseAgent):
 
         # Find exploration hero: prefer Max, fall back to any available
         explorer = next(
-            (h for h in state.heroes if "Max" in h.name and not h.is_operating),
+            (h for h in state.heroes if "Max" in h.name and not h.is_operating and h.is_usable),
             None,
         )
         if explorer is None:
@@ -2246,9 +2255,11 @@ class HeuristicAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     def _get_available_heroes(self, state: GameStatePayload) -> list[HeroState]:
-        """Get heroes that can be dispatched (not operating, not carrying crystal, not busy)."""
+        """Get heroes that can be dispatched (not operating, not carrying crystal, not busy, usable)."""
         heroes = []
         for h in state.heroes:
+            if not h.is_usable:
+                continue
             if h.has_crystal:
                 continue
             if h.is_operating and self.guidelines.protect_operators:

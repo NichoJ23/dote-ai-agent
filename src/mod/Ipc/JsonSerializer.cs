@@ -207,6 +207,7 @@ namespace DotEAgent.Ipc
             AppendBool(sb, "is_gathering_item", h.IsGatheringItem, false);
             AppendBool(sb, "is_recruitable", h.IsRecruitable, false);
             AppendBool(sb, "is_recruited", h.IsRecruited, false);
+            AppendBool(sb, "is_usable", h.IsUsable, false);
 
             // Combat stats
             AppendFloat(sb, "attack", h.Attack, false);

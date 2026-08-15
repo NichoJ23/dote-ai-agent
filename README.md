@@ -5,14 +5,14 @@ An RL agent that plays a roguelike with no API. A C# mod extracts live game stat
 ## Architecture
 
 ```
-Game Process (Unity 5.0.3)          Python Agent
-┌─────────────────────────┐        ┌─────────────────────────┐
-│  BepInEx Mod (C#/.NET 3.5)│        │  Gymnasium Environment   │
-│  - State extraction      │──TCP──▶│  - NetworkX graph        │
-│  - Action injection      │◀──TCP──│  - PPO policy (PyTorch)  │
-│  - 20+ game state types  │        │  - Hierarchical actions  │
-│  - 19 action commands    │        │  - Reward shaping        │
-└─────────────────────────┘        └─────────────────────────┘
+Game Process (Unity 5.0.3)           Python Agent
+┌─────────────────────────┐         ┌─────────────────────────┐
+│ BepInEx Mod (C#/.NET 3.5)│        │  Gymnasium Environment  │
+│  - State extraction      │──TCP──▶│  - NetworkX graph       │
+│  - Action injection      │◀──TCP──│  - PPO policy (PyTorch) │
+│  - 20+ game state types  │        │  - Hierarchical actions │
+│  - 19 action commands    │        │  - Reward shaping       │
+└──────────────────────────┘        └─────────────────────────┘
      Port 5555 (state)                Strategic Brain (16 options)
      Port 5556 (actions)              Micro-Controller (combat)
                                       Escape Controller

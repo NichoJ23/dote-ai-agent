@@ -341,3 +341,55 @@ Phase 5.5 (Polish):
 | Phase 4 | 30 | 3–5 weeks | Escape orchestration complexity; heuristic tuning; operator vs explorer hero assignment conflicts; artifact defense decision-making |
 | Phase 5 | 34 | 6–10 weeks | Reward tuning (sparse rewards in long episodes); single-env training speed; hierarchical action space exploration; curriculum pacing |
 | **Total** | **111** | **13–22 weeks** | — |
+
+---
+
+## Phase 5 Training Notes (Discovered During Live Training)
+
+### Reward Tuning (iterated from observation)
+
+Key principle discovered: **positive signals must be louder than negative ones** to prevent policy collapse into "do nothing."
+
+Current reward values (after tuning):
+- `room_explored = +10.0` (was +5, increased to incentivize progress)
+- `module_built = +3.0` (was +1.5)
+- `invalid_action = -0.5` (was -1.0, reduced to allow experimentation)
+- `wait_penalty = -0.2` (was -0.05, increased to discourage idle loops)
+- `repeat_action_penalty = -1.0` (was -2.0, only fires on true A→B→A oscillation now)
+- `crystal_under_attack_idle = -0.3` per step during combat with mobs at crystal
+- `hero_moved_to_crystal_defense = +5.0`
+- `hero_moved_to_exit = +20.0` (during escape, strong pull toward exit)
+- `powered_rooms_on_door_open = +1.0` per powered room on turn change
+- `entropy_coef = 0.05` (was 0.01, prevents policy collapse)
+
+### Parameter Clamping (critical for bootstrapping)
+
+The agent can't learn if actions always fail. Parameter clamping ensures valid targets:
+- **OPEN_DOOR**: `_pick_hero_and_door()` finds a hero already at a closed door
+- **POSITION_HERO during crystal attack**: forced to crystal room in Stage 1-2
+- **INITIATE_ESCAPE**: marks hero busy until `has_crystal=true` (prevents interruption)
+- **BUILD_MODULE**: mod now validates slot availability (returns fail, triggers -0.5 penalty)
+- **LEVEL_UP_HERO**: mask checks actual `level_up_cost` from state
+- **HEAL_HERO**: mask checks `food >= hero.heal_cost`
+
+### Action Masking (Stage 1-2 restrictions)
+
+Disabled during early training (guideline_shaping_enabled=True):
+- DESTROY_MODULE (never useful on Floor 1)
+- DISMISS_HERO (always harmful with 2 heroes)
+
+### IPC & Stability Issues Resolved
+
+- **Game freeze on restart**: State socket dying while mod pushes at high speed. Fixed with 1s write timeout + always draining state socket on WAIT.
+- **State socket failure detection**: 5 consecutive `receive_state()` failures terminates episode (prevents running on stale data).
+- **Reconnect on crash**: Training loop catches ConnectionError, waits 10s, reconnects, continues.
+- **Dynamic timeScale**: `time_scale` for Strategy, `time_scale_action` for Action, 1x when no client connected or not in dungeon.
+- **Progress-based step limit**: 250 steps without door open = -50 penalty + episode termination.
+
+### Multi-Environment (BLOCKED)
+
+Attempted but failed due to Unity single-instance restrictions:
+- Mutex (`SingleInstanceMutex`) successfully closed via handle64.exe
+- But shared `DungeonoftheEndless_Data` folder has file locks (Unity assets)
+- Full 651MB copy per instance works but still blocked by second mechanism
+- **Current approach**: Single env at 8x speed. Multi-env deferred.

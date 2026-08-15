@@ -114,7 +114,7 @@ class TrainingRunner:
 
                 # Run one episode (with crash recovery)
                 try:
-                    episode_reward, episode_steps, success = self._run_episode(env)
+                    episode_reward, episode_steps, success, progress = self._run_episode(env)
                 except (ConnectionError, OSError, TimeoutError) as e:
                     logger.warning(f"Episode failed (connection lost): {e}")
                     logger.info("Attempting recovery: disconnect, wait, reconnect...")
@@ -150,7 +150,7 @@ class TrainingRunner:
                     self._ppo_update(env)
 
                 # Log every episode
-                self._log_metrics(episode_reward, episode_steps, success)
+                self._log_metrics(episode_reward, episode_steps, success, progress)
 
                 # Checkpointing
                 if self.episode_count % self.config.training.checkpoint_interval == 0:
@@ -186,6 +186,7 @@ class TrainingRunner:
         done = False
         step_times = []  # For latency measurement
         steps_since_progress = 0  # Reset on turn change (door open)
+        self._last_turn = -1  # Force reset at episode start
 
         while not done:
             t_start = time.time()
@@ -241,21 +242,26 @@ class TrainingRunner:
 
             # Track progress — reset on turn change (door open advances turn)
             curr_turn = info.get("turn", 0)
-            if not hasattr(self, '_last_turn'):
-                self._last_turn = curr_turn
             if curr_turn > self._last_turn:
                 steps_since_progress = 0
-                self._last_turn = curr_turn
+            elif info.get("action_sent", {}).get("command") == "OPEN_DOOR" and info.get("action_result", {}).get("success"):
+                # Successful door open resets progress even if turn hasn't changed in state yet
+                steps_since_progress = 0
             else:
-                steps_since_progress += 1
+                # Only count steps during Strategy phase (combat steps don't count toward stall limit)
+                game_phase = info.get("game_phase", "Strategy")
+                if game_phase == "Strategy":
+                    steps_since_progress += 1
+            self._last_turn = curr_turn
 
-            # Force-terminate if agent is stalling (no door opened in 250 steps)
-            if steps_since_progress > 250:
-                logger.warning(f"Episode force-terminated: no progress in 250 steps (total steps: {steps})")
+            # Force-terminate if agent is stalling (no door opened in 500 strategy steps)
+            if steps_since_progress > 500:
+                logger.warning(f"Episode force-terminated: no progress in 500 steps (total steps: {steps})")
                 # Lump penalty for stalling
                 reward -= 50.0
                 episode_reward -= 50.0
                 done = True
+                terminated = True  # Count as failure for success rate
 
         # Log latency summary
         if step_times:
@@ -267,9 +273,18 @@ class TrainingRunner:
                 f"avg_total={avg_total:.1f}ms over {len(step_times)} steps"
             )
 
-        # Success = escaped (not game over)
-        success = not (info.get("crystal_state") == "Unplugged" or terminated)
-        return episode_reward, steps, success
+        # Success = floor progress (0 to 1.0 based on floors completed / 12)
+        floor_reached = info.get("floor", 1)
+        if info.get("crystal_state") == "PluggedOnExitSlot":
+            # Successfully escaped this floor
+            progress = floor_reached / 12.0
+        elif terminated:
+            # Died or step-limited — credit floors already completed (floor_reached - 1)
+            progress = max(0, (floor_reached - 1)) / 12.0
+        else:
+            progress = max(0, (floor_reached - 1)) / 12.0
+        success = progress > 0  # Any floor escaped = success for curriculum
+        return episode_reward, steps, success, progress
 
     def _restart_game(self, env: RLEnv) -> None:
         """
@@ -368,12 +383,12 @@ class TrainingRunner:
             f"updates={metrics['num_updates']}"
         )
 
-    def _log_metrics(self, episode_reward: float, steps: int, success: bool) -> None:
+    def _log_metrics(self, episode_reward: float, steps: int, success: bool, progress: float = 0.0) -> None:
         """Log training metrics."""
         logger.info(
             f"Episode {self.episode_count} | "
             f"Reward: {episode_reward:.1f} | Steps: {steps} | "
-            f"Success: {success} | "
+            f"Success: {success} | Progress: {progress:.1%} | "
             f"Success Rate: {self.curriculum.success_rate:.2%} | "
             f"Stage: {self.curriculum.stage_name} | "
             f"Total Steps: {self.total_steps}"

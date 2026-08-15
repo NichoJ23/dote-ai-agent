@@ -112,8 +112,32 @@ class TrainingRunner:
                     logger.info("Training interrupted by user")
                     break
 
-                # Run one episode
-                episode_reward, episode_steps, success = self._run_episode(env)
+                # Run one episode (with crash recovery)
+                try:
+                    episode_reward, episode_steps, success = self._run_episode(env)
+                except (ConnectionError, OSError, TimeoutError) as e:
+                    logger.warning(f"Episode failed (connection lost): {e}")
+                    logger.info("Attempting recovery: disconnect, wait, reconnect...")
+                    # Save progress before recovery attempt
+                    self._save_checkpoint(f"recovery_{self.episode_count}")
+                    # Disconnect and wait for game to stabilize
+                    try:
+                        env.close()
+                    except Exception:
+                        pass
+                    env._connected = False
+                    time.sleep(10.0)
+                    # Reconnect
+                    try:
+                        env._ipc.connect()
+                        env._connected = True
+                        logger.info("Reconnected successfully. Restarting game...")
+                        self._restart_game(env)
+                        continue  # Retry the episode
+                    except Exception as e2:
+                        logger.error(f"Recovery failed: {e2}. Stopping training.")
+                        break
+
                 self.episode_count += 1
 
                 # Record for curriculum
@@ -125,9 +149,8 @@ class TrainingRunner:
                 if self.buffer.size >= self.config.ppo.rollout_steps:
                     self._ppo_update(env)
 
-                # Logging
-                if self.episode_count % self.config.training.log_interval == 0:
-                    self._log_metrics(episode_reward, episode_steps, success)
+                # Log every episode
+                self._log_metrics(episode_reward, episode_steps, success)
 
                 # Checkpointing
                 if self.episode_count % self.config.training.checkpoint_interval == 0:
@@ -162,6 +185,7 @@ class TrainingRunner:
         steps = 0
         done = False
         step_times = []  # For latency measurement
+        steps_since_progress = 0  # Reset on turn change (door open)
 
         while not done:
             t_start = time.time()
@@ -215,9 +239,22 @@ class TrainingRunner:
             if info.get("floor", 1) > self.curriculum.max_floors:
                 done = True
 
-            # Force-terminate if agent is stuck (too many steps without progress)
-            if steps > 2000:
-                logger.warning(f"Episode force-terminated at {steps} steps (stuck)")
+            # Track progress — reset on turn change (door open advances turn)
+            curr_turn = info.get("turn", 0)
+            if not hasattr(self, '_last_turn'):
+                self._last_turn = curr_turn
+            if curr_turn > self._last_turn:
+                steps_since_progress = 0
+                self._last_turn = curr_turn
+            else:
+                steps_since_progress += 1
+
+            # Force-terminate if agent is stalling (no door opened in 250 steps)
+            if steps_since_progress > 250:
+                logger.warning(f"Episode force-terminated: no progress in 250 steps (total steps: {steps})")
+                # Lump penalty for stalling
+                reward -= 50.0
+                episode_reward -= 50.0
                 done = True
 
         # Log latency summary

@@ -26,6 +26,8 @@ namespace DotEAgent.Models
         public float Wit;                 // Wit (module operation effectiveness)
         public float AttackCooldown;      // Time between attacks
         public float LevelUpCost;         // Food cost to reach next level (0 if max level)
+        public float HealCost;            // Food cost per heal action
+        public float HealAmount;          // HP restored per heal action
 
         public List<ActiveSkillData> ActiveSkills;
         public List<PassiveSkillData> PassiveSkills;

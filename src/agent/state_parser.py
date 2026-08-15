@@ -138,6 +138,8 @@ class HeroState(BaseModel):
     wit: float = 0.0              # Wit (module operation effectiveness)
     attack_cooldown: float = 0.0  # Time between attacks
     level_up_cost: float = 0.0    # Food cost to reach next level (0 if max level)
+    heal_cost: float = 0.0        # Food cost per heal action
+    heal_amount: float = 0.0      # HP restored per heal action
 
     active_skills: list[ActiveSkill] = Field(default_factory=list)
     passive_skills: list[PassiveSkill] = Field(default_factory=list)

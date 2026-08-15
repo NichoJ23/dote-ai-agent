@@ -133,6 +133,18 @@ namespace DotEAgent.Hooks
                 data.LevelUpCost = 0f;
             }
 
+            // Heal cost and amount
+            try
+            {
+                data.HealCost = (float)hero.GetHealFoodCost();
+                data.HealAmount = (float)hero.GetHealAmount();
+            }
+            catch (System.Exception)
+            {
+                data.HealCost = 0f;
+                data.HealAmount = 0f;
+            }
+
             // Build the skill tree and unlock level mapping from levelConfigs
             // levelConfigs[i] corresponds to hero level (i+1) and contains Skills[] unlocked at that level
             var skillUnlockLevels = new Dictionary<string, int>();

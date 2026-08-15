@@ -111,6 +111,8 @@ class RLEnv(gym.Env):
             disable_destroy_module=curr_stage.guideline_shaping_enabled,
             disable_dismiss_hero=curr_stage.guideline_shaping_enabled,
         )
+        # Force crystal defense during combat in early stages
+        self._force_crystal_defense = curr_stage.guideline_shaping_enabled
         self._reward_shaper = RewardShaper(self._config.rewards)
 
         # State
@@ -225,8 +227,12 @@ class RLEnv(gym.Env):
         try:
             raw_state = self._ipc.receive_state(timeout=5.0)
             self._current_state = self._parser.parse(raw_state)
+            self._state_failures = 0
         except Exception:
-            pass  # Keep current state if no new state arrives
+            self._state_failures = getattr(self, '_state_failures', 0) + 1
+            if self._state_failures > 5:
+                # State socket is dead — force game over to end the episode
+                raise ConnectionError("State socket disconnected (5 consecutive failures)")
 
         # Update hero movement tracking
         self._update_move_targets()
@@ -561,8 +567,13 @@ class RLEnv(gym.Env):
 
         elif option == StrategicOption.POSITION_HERO:
             hero_target = self._pick_usable_hero(state, hero_target)
-            # Room target: any explored room (rooms in state)
-            if state.rooms:
+            # During combat with mobs in crystal room, force heroes toward crystal
+            # (curriculum stage 1-2 training aid — disabled later)
+            crystal_room = state.start_room_index
+            mobs_at_crystal = any(m.room_index == crystal_room for m in state.mobs)
+            if state.game_phase.is_combat and mobs_at_crystal and self._force_crystal_defense:
+                room_target = crystal_room
+            elif state.rooms:
                 room_target = state.rooms[room_target % len(state.rooms)].index
 
         elif option == StrategicOption.COLLECT_ITEM:

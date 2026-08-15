@@ -218,6 +218,8 @@ namespace DotEAgent.Ipc
             AppendFloat(sb, "wit", h.Wit, false);
             AppendFloat(sb, "attack_cooldown", h.AttackCooldown, false);
             AppendFloat(sb, "level_up_cost", h.LevelUpCost, false);
+            AppendFloat(sb, "heal_cost", h.HealCost, false);
+            AppendFloat(sb, "heal_amount", h.HealAmount, false);
 
             // Active skills
             sb.Append(",\"active_skills\":");

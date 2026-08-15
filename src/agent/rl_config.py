@@ -52,6 +52,7 @@ class GuidelineRewardWeights:
     power_chain_broken: float = -3.0
     power_chain_optimal: float = 1.0
     depower_module_room_cost_scale: float = -0.1  # Penalty scaled by module cost when depowering a room with modules
+    powered_rooms_on_door_open: float = 1.0  # Bonus per powered room when a door is opened (turn change)
     enabled_power: bool = True
 
     # GL-OPERATE: Operate placement and protection
@@ -70,7 +71,7 @@ class GuidelineRewardWeights:
     escape_all_doors_open: float = 5.0
     escape_early_but_safe: float = 2.0
     overstayed: float = -10.0
-    hero_moved_to_exit: float = 10.0  # Hero moves toward exit room during escape (crystal picked up)
+    hero_moved_to_exit: float = 20.0  # Hero moves toward exit room during escape (crystal picked up)
     enabled_escape: bool = True
 
     # GL-COMBAT: Combat positioning

@@ -275,6 +275,13 @@ class RewardShaper:
             if curr_powered_reachable > prev_powered_reachable:
                 reward += self.gl.power_chain_optimal
 
+        # Bonus for powered rooms on turn change (door open = turn advances)
+        if curr.turn > prev.turn:
+            powered_count = sum(
+                1 for r in curr.rooms if (r.is_powered or r.is_auto_powered) and not r.is_start_room
+            )
+            reward += self.gl.powered_rooms_on_door_open * powered_count
+
         return reward
 
     def _gl_operate(

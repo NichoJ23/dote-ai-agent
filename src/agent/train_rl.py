@@ -215,6 +215,11 @@ class TrainingRunner:
             if info.get("floor", 1) > self.curriculum.max_floors:
                 done = True
 
+            # Force-terminate if agent is stuck (too many steps without progress)
+            if steps > 3000:
+                logger.warning(f"Episode force-terminated at {steps} steps (stuck)")
+                done = True
+
         # Log latency summary
         if step_times:
             avg_think = np.mean([s["think"] for s in step_times]) * 1000

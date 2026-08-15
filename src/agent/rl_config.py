@@ -30,7 +30,7 @@ class CoreRewardWeights:
     room_explored: float = 5.0
     invalid_action: float = -1.0
     successful_action: float = 0.1
-    wait_penalty: float = -0.05
+    wait_penalty: float = -0.2  # Penalty for choosing WAIT (stronger to discourage idle loops)
     repeat_action_penalty: float = -2.0  # Penalty for oscillating (toggling power, moving hero back/forth)
     industry_built: float = 3.0
     module_built: float = 1.5

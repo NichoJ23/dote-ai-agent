@@ -219,19 +219,14 @@ class RLEnv(gym.Env):
         else:
             action_result = self._ipc.send_action(command, parameters)
 
-        # Receive fresh state after action
-        if command != "WAIT":
-            raw_state = self._ipc.receive_state()
-            self._prev_state = self._current_state
+        # Always receive fresh state (even on WAIT) to drain the state socket
+        # and prevent TCP buffer overflow at high game speeds
+        self._prev_state = self._current_state
+        try:
+            raw_state = self._ipc.receive_state(timeout=5.0)
             self._current_state = self._parser.parse(raw_state)
-        else:
-            # For WAIT, we still get a state (periodic push or just keep current)
-            self._prev_state = self._current_state
-            try:
-                raw_state = self._ipc.receive_state(timeout=2.0)
-                self._current_state = self._parser.parse(raw_state)
-            except Exception:
-                pass  # Keep current state if no new state arrives
+        except Exception:
+            pass  # Keep current state if no new state arrives
 
         # Update hero movement tracking
         self._update_move_targets()

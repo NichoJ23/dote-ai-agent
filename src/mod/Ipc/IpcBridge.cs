@@ -243,6 +243,9 @@ namespace DotEAgent.Ipc
         {
             try
             {
+                // Set a short write timeout to prevent blocking if client disconnected
+                stream.WriteTimeout = 1000; // 1 second max
+
                 byte[] payload = Encoding.UTF8.GetBytes(json);
                 byte[] lengthPrefix = IntToBigEndianBytes(payload.Length);
 

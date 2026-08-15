@@ -672,13 +672,14 @@ class RewardShaper:
         elif cmd == "UNPOWER_ROOM":
             return f"POWER:{params.get('room_index')}"
         elif cmd in ("MOVE_HERO", "POSITION_HERO"):
-            # The inverse of moving hero X to room Y is moving hero X FROM room Y
-            # We detect this by checking if we recently moved this hero elsewhere
+            # Only penalize if hero is moving BACK to a room they just left
+            # (true oscillation: A→B then B→A)
             hero_name = params.get("hero_name", "")
-            # Check if this hero was recently moved — any prior MOVE of same hero = oscillation
-            for prev_sig in reversed(self._recent_actions):
-                if prev_sig.startswith(f"MOVE:{hero_name}→"):
-                    # Same hero moved again = likely oscillation
-                    return prev_sig
+            target = params.get("target_room_index", -1)
+            # The inverse of "move hero to room X" is a prior move FROM room X
+            # Check if we recently moved this hero TO a different room FROM this target
+            inverse_sig = f"MOVE:{hero_name}→{target}"
+            if inverse_sig in self._recent_actions:
+                return inverse_sig
             return None
         return None

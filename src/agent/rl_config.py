@@ -27,13 +27,13 @@ class CoreRewardWeights:
     floor_escaped: float = 200.0
     game_over: float = -200.0
     hero_died: float = -50.0
-    room_explored: float = 5.0
-    invalid_action: float = -1.0
+    room_explored: float = 10.0
+    invalid_action: float = -0.5
     successful_action: float = 0.1
     wait_penalty: float = -0.2  # Penalty for choosing WAIT (stronger to discourage idle loops)
-    repeat_action_penalty: float = -2.0  # Penalty for oscillating (toggling power, moving hero back/forth)
+    repeat_action_penalty: float = -1.0  # Penalty for oscillating (toggling power, moving hero back/forth)
     industry_built: float = 3.0
-    module_built: float = 1.5
+    module_built: float = 3.0
     module_destroyed_cost_scale: float = -0.5  # Multiplied by module's industry cost when destroyed by mobs
     research_completed: float = 4.0
     item_equipped: float = 1.0
@@ -78,7 +78,7 @@ class GuidelineRewardWeights:
     hero_took_heavy_damage: float = -1.0
     hero_healed_wisely: float = 0.5
     hero_moved_to_crystal_defense: float = 5.0  # Hero moves to crystal room when mobs are there
-    crystal_under_attack_idle: float = -0.5     # Per step: WAIT or non-crystal MOVE while mobs in crystal room
+    crystal_under_attack_idle: float = -0.3     # Per step: WAIT or non-crystal MOVE while mobs in crystal room
     enabled_combat: bool = True
 
     # GL-EQUIPMENT: Equipment matching

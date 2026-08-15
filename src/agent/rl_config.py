@@ -119,7 +119,7 @@ class PPOConfig:
     gae_lambda: float = 0.95
     clip_ratio: float = 0.2
     value_loss_coef: float = 0.5
-    entropy_coef: float = 0.01
+    entropy_coef: float = 0.05  # Higher entropy = more exploration, prevents policy collapse
     max_grad_norm: float = 0.5
     num_epochs: int = 4
     batch_size: int = 64

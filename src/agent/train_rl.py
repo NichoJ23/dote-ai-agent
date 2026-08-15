@@ -216,7 +216,7 @@ class TrainingRunner:
                 done = True
 
             # Force-terminate if agent is stuck (too many steps without progress)
-            if steps > 3000:
+            if steps > 2000:
                 logger.warning(f"Episode force-terminated at {steps} steps (stuck)")
                 done = True
 
